@@ -56,7 +56,7 @@ The custom-value sub-commands are QMK's `id_custom_set_value = 0x07`,
 - GET: every value (IDs 1, 2, 6, 7, 8, 9) is written to `value_id_and_data[1]`
   (the byte after the value id) as a single 8-bit byte.
 - SET: reads `value_id_and_data[1]` (the byte after the value id) for all IDs.
-- Custom keycodes (layer 3): `APCM`, `RTM`, `KCM`, `DEBUG0`–`DEBUG5`;
+- Custom keycodes (layer 3): `APCM`, `RTM`, `KCM`;
   non-standard `0x7820`–`0x7828` on layer 3 bottom row (offsets 32–40, not
   standard `QK_USER` `0x7E00`). "Firmware Update" = `QK_BOOTLOADER` (`0x7C00`).
 

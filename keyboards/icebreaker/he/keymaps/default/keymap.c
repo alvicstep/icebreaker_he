@@ -26,7 +26,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         QK_BOOT, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,
         _______, QK_KB_0, QK_KB_1, QK_KB_2, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,
         _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,          _______,
-        _______, QK_KB_4, QK_KB_8, QK_KB_3, QK_KB_5, _______, _______, _______, _______, _______, _______, _______, _______, _______,
+        _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,
         _______, _______, _______,                   _______,                            _______, _______, _______, _______, _______, _______
     ),
 };
@@ -42,7 +42,7 @@ const uint16_t PROGMEM encoder_map[][NUM_ENCODERS][NUM_DIRECTIONS] = {
 #endif
 
 // Recovered custom keycodes: delegate to the keyboard-level handler in
-// he_matrix.c (QK_KB_0..QK_KB_8 -> mode/logging selection, see he_matrix.h).
+// he_matrix.c (QK_KB_0..QK_KB_2 -> actuation-mode selection, see he_matrix.h).
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     return he_handle_keycode(keycode, record);
 }

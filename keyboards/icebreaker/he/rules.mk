@@ -10,7 +10,6 @@ BOOTLOADER = stm32-dfu
 # Sources
 SRC += he_matrix.c
 SRC += he_via.c
-SRC += boot_trace.c
 
 # Enable the QMK analog (ADC) driver — he_matrix.c uses analogReadPin().
 ANALOG_DRIVER_REQUIRED = yes
@@ -30,8 +29,11 @@ ENCODER_MAP_ENABLE = yes
 # Hall-effect / rapid-trigger feature flags (custom, see he_matrix.c).
 HE_ENABLE = yes
 
+# Share the keyboard HID endpoint with extrakey/nkro/mousekey so those features
+# fit within the STM32F411 OTG endpoint budget (alongside VIA raw HID + console).
+KEYBOARD_SHARED_EP = yes
+
 # Console (debug) output is declared via "console": true in keyboard.json.
-# (STM32F411 has only 3 USB endpoints; extrakey/nkro were disabled to make room.)
 
 # Do not enable Link Time Optimization until the driver is stable.
 LTO_ENABLE = no

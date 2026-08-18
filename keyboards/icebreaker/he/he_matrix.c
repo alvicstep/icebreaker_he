@@ -29,26 +29,10 @@
 #include "he_matrix.h"
 
 #include "analog.h"
-#include "boot_trace.h"
 #include "eeconfig.h"
 #include "gpio.h"
 #include "keyboard.h"
 #include "print.h"
-#include "timer.h"
-#include "usb_main.h"
-
-/* --------------------------------------------------------------------------
- * Boot diagnostics
- * ------------------------------------------------------------------------ */
-
-// The QMK DFU bootloader stores a 0xDEADBEEF marker at the top word of SRAM
-// (__ram0_end__ - 4) to signal "jump to bootloader" after a soft reset. Reading
-// it lets us see whether a previous session left the marker set (which would
-// make enter_bootloader_mode_if_requested() bounce us straight back into DFU).
-extern uint8_t __ram0_end__;
-static uint32_t he_bootloader_magic(void) {
-    return *(volatile uint32_t *)((uint32_t)&__ram0_end__ - 4);
-}
 
 /* --------------------------------------------------------------------------
  * Bootmagic reset-loop guard
@@ -258,33 +242,23 @@ void he_set_release_dist(uint8_t value) {
 }
 
 /* --------------------------------------------------------------------------
- * Recovered custom keycodes (QK_KB_0 .. QK_KB_8)
+ * Recovered custom keycodes (QK_KB_0 .. QK_KB_2)
  *
  * The original process_record handler (flash @ 0x0800abe4) subtracts QK_KB
  * (0x7E00) from the keycode and switches on the result (0..8), acting on key
- * press only and returning false (consumed) for every QK_KB keycode:
+ * press only and returning false (consumed) for every QK_KB keycode. Only the
+ * three actuation-mode keycodes are implemented; the original's diagnostic
+ * logging levels (QK_KB_3..8) are intentionally not reconstructed.
  *
- *   QK_KB_0 -> APC mode (actuation = 85)   QK_KB_3 -> logging 0
- *   QK_KB_1 -> RT mode  (actuation = 0)    QK_KB_4 -> logging 1
- *   QK_KB_2 -> Key Cancel (actuation = 170) QK_KB_5 -> logging 2 (blocking)
- *                                          QK_KB_6 -> logging 3 (none)
- *                                          QK_KB_7 -> logging 4
- *                                          QK_KB_8 -> logging 5
+ *   QK_KB_0 -> APC mode (actuation = 85)
+ *   QK_KB_1 -> RT mode  (actuation = 0)
+ *   QK_KB_2 -> Key Cancel (actuation = 170)
  *
  * The original also persists a mode-specific default threshold (85/0/170) to
  * EEPROM via a helper @ 0x0800ab90; that side effect is omitted here in favour
  * of the he_set_mode() path used by the VIA handler (which persists the mode
  * itself).
  * ------------------------------------------------------------------------ */
-
-// Diagnostic logging level (set by QK_KB_3..8). The original gates trace output
-// on this value; the full logging subsystem is not reconstructed, so we keep
-// only the recovered selector for API completeness.
-static uint8_t he_logging_mode;
-
-uint8_t he_get_logging_mode(void) {
-    return he_logging_mode;
-}
 
 bool he_handle_keycode(uint16_t keycode, keyrecord_t *record) {
     switch (keycode) {
@@ -306,42 +280,6 @@ bool he_handle_keycode(uint16_t keycode, keyrecord_t *record) {
             if (record->event.pressed) {
                 he_set_mode(HE_MODE_KEY_CANCEL);
                 uprintf("Key Cancel Mode set\n");
-            }
-            return false;
-        case QK_KB_3:
-            if (record->event.pressed) {
-                he_logging_mode = 0;
-                uprintf("Logging Mode set to 0\n");
-            }
-            return false;
-        case QK_KB_4:
-            if (record->event.pressed) {
-                he_logging_mode = 1;
-                uprintf("Logging Mode set to 1\n");
-            }
-            return false;
-        case QK_KB_5:
-            if (record->event.pressed) {
-                he_logging_mode = 2;
-                uprintf("Logging Mode set to 2 (blocking keystrokes)\n");
-            }
-            return false;
-        case QK_KB_6:
-            if (record->event.pressed) {
-                he_logging_mode = 3;
-                uprintf("Logging Mode set to 3(none)\n");
-            }
-            return false;
-        case QK_KB_7:
-            if (record->event.pressed) {
-                he_logging_mode = 4;
-                uprintf("Logging Mode set to 4\n");
-            }
-            return false;
-        case QK_KB_8:
-            if (record->event.pressed) {
-                he_logging_mode = 5;
-                uprintf("Logging Mode set to 5\n");
             }
             return false;
         default:
@@ -624,8 +562,6 @@ static void he_config_set_defaults(void) {
 // immediately before the USB driver comes up. A marker here proves the
 // wear-leveling EEPROM driver init completed.
 void keyboard_pre_init_kb(void) {
-    boot_trace(BT_PRE_INIT_KB);
-
     // Format the EEPROM *before* USB connects. On first boot (or after a full
     // flash wipe) eeconfig_init() erases the wear-leveling backing flash sector,
     // which stalls the CPU for the duration of the erase. If that stall happens
@@ -634,7 +570,6 @@ void keyboard_pre_init_kb(void) {
     // the device parks in SUSPENDED. Doing the format here, while the device is
     // still invisible to the host, keeps the enumeration window stall-free.
     if (!eeconfig_is_enabled()) {
-        boot_trace(BT_EE_INIT_PRE);
         he_config_set_defaults(); // persist real defaults, not zeroed BSS
         eeconfig_init();
     }
@@ -642,18 +577,7 @@ void keyboard_pre_init_kb(void) {
     keyboard_pre_init_user();
 }
 
-static uint32_t read_psp(void) {
-    uint32_t psp;
-    __asm__ volatile("mrs %0, psp" : "=r"(psp));
-    return psp;
-}
-
 void matrix_init_custom(void) {
-    boot_trace(BT_MATRIX_INIT);
-    boot_trace_value(14, timer_read32()); // ms timestamp at matrix init
-    boot_trace_value(28, read_psp());     // process stack pointer at matrix init (overflow probe)
-    uprintf("HE: matrix_init_custom() entry magic=0x%08lx\n", (unsigned long)he_bootloader_magic());
-
     // Configure the 4 address lines and 5 enable lines as push-pull outputs.
     for (uint8_t i = 0; i < HE_ADDR_LINES; i++) {
         gpio_set_pin_output(mux_addr_pins[i]);
@@ -673,37 +597,21 @@ void matrix_init_custom(void) {
     // raw_min/raw_max are filled by calibration in the original firmware;
     // travel/peak/valley seed the rapid-trigger state machine.
     he_config_set_defaults();
-
-    uprintf("HE: matrix_init_custom() done\n");
 }
 
 // First boot (or EEPROM reset): persist the default per-key thresholds.
 // eeconfig_init_quantum() runs eeconfig_init_kb_datablock() before this (which
 // stamps the version and zeroes the block), so we only write our defaults.
 void eeconfig_init_kb(void) {
-    boot_trace(BT_EE_INIT_KB);
-    uprintf("HE: eeconfig_init_kb() -- first boot / EEPROM reset\n");
     he_save_to_eeprom();
     eeconfig_init_user();
-}
-
-// Runs as the FIRST statement of keyboard_post_init_quantum() (weak override).
-// If this marker is present, keyboard_init() reached its tail call to
-// keyboard_post_init_quantum(); if absent, keyboard_init() stopped earlier.
-void keyboard_post_init_modules(void) {
-    boot_trace(BT_POST_INIT_MODULES);
-    boot_trace_value(27, read_psp()); // process stack pointer at post-init (overflow probe)
 }
 
 // Runs last in keyboard_init(), after eeconfig is guaranteed valid — load the
 // persisted thresholds into RAM.
 void keyboard_post_init_kb(void) {
-    boot_trace(BT_POST_INIT_KB);
-    boot_trace_value(15, timer_read32()); // ms timestamp at post-init (erase spans 14->15)
-    uprintf("HE: keyboard_post_init_kb() magic=0x%08lx mode=%d\n", (unsigned long)he_bootloader_magic(), (int)he_mode);
     he_load_from_eeprom();
     keyboard_post_init_user();
-    uprintf("HE: keyboard_post_init_kb() done\n");
 }
 
 // Debounce state for the encoder push button (sensor 68). Mirrors the
@@ -718,78 +626,13 @@ static uint8_t he_enc_push_debounce = 0;
 static bool    he_phys_pressed[HE_SENSOR_COUNT];
 static uint8_t socd_winner[SOCD_PAIR_COUNT] = {0xFF, 0xFF};
 
+// Monotonic scan counter; drives the boot auto-calibration rest-sampling window
+// (see HE_ADC_REST_SAMPLE_SCANS below in matrix_scan_custom()).
 static uint32_t he_scan_count = 0;
-
-// Flash-diagnostic state. Slots written via boot_trace_value() (see below):
-//   0..2  = raw ADC of sensors 0/32/46 on the first scan (resting values)
-//   3     = encoder-push GPIO level on the first scan
-//   4     = he_scan_count when USB_DRIVER.state first hit USB_ACTIVE
-//   5     = he_scan_count when USB_DRIVER.state first hit USB_SUSPENDED
-//   6     = index of the first sensor reported pressed (blank = none)
-//   7     = he_scan_count at first press
-//   8     = raw ADC at first press (0xFFFF = encoder push, non-analog)
-//   9/10  = max/min raw ADC swing observed up to first suspend
-//   11/12 = suspend_power_down_kb() / suspend_wakeup_init_kb() call counts
-//   14    = timer_read32() ms timestamp at matrix_init_custom()
-//   15    = timer_read32() ms timestamp at keyboard_post_init_kb()
-//           (the 14->15 gap includes the EEPROM wear-leveling flash erase)
-//   16    = timer_read32() ms timestamp at the first matrix scan
-//   20..24= USB event bitmask (usb_event_debug) at scans 5/20/100/500/2000
-//   25/26 = USB event bitmask at scans 1/2 (captured before early suspend park)
-//   27    = process stack pointer (PSP) at keyboard_post_init_modules()
-//   28    = process stack pointer (PSP) at matrix_init_custom()
-//           (PSP grows DOWN from 0x20000c00; < 0x20000400 => overflow)
-//   29    = global max raw ADC observed by scan 5000 (press polarity probe)
-//   30    = global min raw ADC observed by scan 5000 (press polarity probe)
-//   31    = global max raw ADC observed by scan 20000 (late press probe)
-//   32    = auto-calibrated raw_min for sensor 0 (after rest-sampling window)
-//   33    = auto-calibrated raw_max for sensor 0 (raw_min + HE_ADC_TRAVEL_SPAN)
-//           bit0=RESET bit1=ADDRESS bit2=CONFIGURED bit3=UNCONFIGURED
-//           bit4=SUSPEND bit5=WAKEUP bit6=STALLED
-static bool     he_usb_active_seen    = false;
-static bool     he_usb_suspended_seen = false;
-static bool     he_first_press_seen   = false;
-static uint16_t he_max_raw            = 0;
-static uint16_t he_min_raw            = HE_ADC_RAW_MAX;
-static uint32_t he_suspend_count      = 0;
-static uint32_t he_wakeup_count       = 0;
-
-// Raw USB event accumulator. usb_event_debug() (a weak hook in usb_main.c) is
-// called from the OTG interrupt as each global event arrives; we only set bits
-// here (never read) and snapshot the mask from the scan loop, so it is safe
-// across the ISR/thread boundary.
-static volatile uint32_t he_usb_event_mask = 0;
-
-void usb_event_debug(usbevent_t event) {
-    if ((uint32_t)event < 32) {
-        he_usb_event_mask |= (1UL << (uint32_t)event);
-    }
-}
-
-// Weak hooks (platforms/suspend.c + quantum/quantum.c) overridden so the host
-// suspend / device resume events are visible in the flash trace. This tells us
-// whether the device is parking in QMK's suspend loop (and whether it ever
-// wakes), independent of the USB-state markers sampled from the scan loop.
-void suspend_power_down_kb(void) {
-    boot_trace(BT_SUSPEND_KB);
-    boot_trace_value(11, ++he_suspend_count);
-    suspend_power_down_user();
-}
-
-void suspend_wakeup_init_kb(void) {
-    boot_trace(BT_WAKEUP_KB);
-    boot_trace_value(12, ++he_wakeup_count);
-    suspend_wakeup_init_user();
-}
 
 bool matrix_scan_custom(matrix_row_t current_matrix[]) {
     bool changed = false;
     he_scan_count++;
-
-    if (he_scan_count == 1) {
-        boot_trace(BT_SCAN_FIRST);
-        boot_trace_value(16, timer_read32()); // ms timestamp at first scan
-    }
 
     // Rising-edge flags for key-cancel (SOCD) resolution.
     bool newly_pressed[HE_SENSOR_COUNT] = {false};
@@ -807,9 +650,6 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
         // shared (mux 0, addr 0) channel free for key [1,2].
         if (i == HE_ENC_PUSH_INDEX) {
             bool raw = he_read_encoder_push();
-            if (he_scan_count == 1) {
-                boot_trace_value(3, raw ? 1U : 0U);
-            }
             if (raw != he_phys_pressed[i]) {
                 if (++he_enc_push_debounce >= HE_ENC_PUSH_DEBOUNCE) {
                     bool was            = he_phys_pressed[i];
@@ -824,16 +664,6 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
         }
 
         uint16_t raw = he_read_sensor_raw(s);
-
-        // Diagnostic: track the global min/max raw swing and capture a few
-        // reference channels on the very first scan.
-        if (raw > he_max_raw) he_max_raw = raw;
-        if (raw < he_min_raw) he_min_raw = raw;
-        if (he_scan_count == 1) {
-            if (i == 0)  boot_trace_value(0, raw);
-            if (i == 32) boot_trace_value(1, raw);
-            if (i == 46) boot_trace_value(2, raw);
-        }
 
         // Boot auto-calibration: while the board is at rest (first N scans),
         // track each sensor's resting floor. Press drives the ADC *up* from
@@ -866,11 +696,6 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
             he_config[i].raw_min = base;
             he_config[i].raw_max = base + HE_ADC_TRAVEL_SPAN;
         }
-        boot_trace_value(32, he_config[0].raw_min);
-        boot_trace_value(33, he_config[0].raw_max);
-        uprintf("HE: auto-cal sensor0 raw_min=%u raw_max=%u (span=%u)\n",
-                (unsigned)he_config[0].raw_min, (unsigned)he_config[0].raw_max,
-                (unsigned)HE_ADC_TRAVEL_SPAN);
     }
 
     // 2) Key-cancel (SOCD) resolution — "last input wins". The most recently
@@ -921,84 +746,11 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
             changed              = true;
         }
 
-        if (pressed && !he_first_press_seen) {
-            he_first_press_seen = true;
-            boot_trace_value(6, i);            // first pressed sensor index
-            boot_trace_value(7, he_scan_count); // scan count at first press
-            if (i == HE_ENC_PUSH_INDEX) {
-                boot_trace_value(8, 0xFFFFU);   // encoder push (non-analog)
-            } else {
-                boot_trace_value(8, he_read_sensor_raw(s)); // raw at first press
-            }
-        }
-
         if (pressed) {
             current_matrix[s->row] |= ((matrix_row_t)1 << s->col);
         } else {
             current_matrix[s->row] &= ~((matrix_row_t)1 << s->col);
         }
-    }
-
-    // Non-USB diagnostics: record the ChibiOS USB driver state (mapped to a
-    // boot_trace marker) and a heartbeat so we can tell, after a DFU readback,
-    // (a) how far USB enumeration got and (b) whether the main loop is still
-    // running. boot_trace*() is write-once, so this is cheap after the first hit.
-    {
-        usbstate_t us = USB_DRIVER.state;
-        if (us >= USB_STOP && us <= USB_SUSPENDED) {
-            boot_trace(BT_USB_STOP + ((uint32_t)us - (uint32_t)USB_STOP));
-        }
-        if (us == USB_ACTIVE && !he_usb_active_seen) {
-            he_usb_active_seen = true;
-            boot_trace_value(4, he_scan_count);
-        }
-        if (us == USB_SUSPENDED && !he_usb_suspended_seen) {
-            he_usb_suspended_seen = true;
-            boot_trace_value(5, he_scan_count);
-            boot_trace_value(9, he_max_raw);  // resting ADC swing up to suspend
-            boot_trace_value(10, he_min_raw);
-        }
-    }
-
-    // Snapshot the accumulated raw USB events at a few scan counts so the DFU
-    // readback shows whether the host ever reset/addressed/configured us. The
-    // scan-1/2 snapshots matter most: if the device parks in suspend early we
-    // never reach the later scan counts.
-    {
-        uint32_t mask = he_usb_event_mask;
-        if (he_scan_count == 1)    boot_trace_value(25, mask);
-        if (he_scan_count == 2)    boot_trace_value(26, mask);
-        if (he_scan_count == 5)    boot_trace_value(20, mask);
-        if (he_scan_count == 20)   boot_trace_value(21, mask);
-        if (he_scan_count == 100)  boot_trace_value(22, mask);
-        if (he_scan_count == 500)  boot_trace_value(23, mask);
-        if (he_scan_count == 2000) boot_trace_value(24, mask);
-    }
-
-    // Late ADC-swing capture: he_max_raw/he_min_raw accumulate every analog
-    // scan, so by scan 5000 they reflect any key pressed shortly after boot.
-    // This reveals the Hall press polarity (up vs. down) and magnitude even
-    // though the current raw_min/raw_max default may not register a press.
-    if (he_scan_count == 5000) {
-        boot_trace_value(29, he_max_raw);
-        boot_trace_value(30, he_min_raw);
-        uprintf("HE: swing@5000 min=%u max=%u\n", (unsigned)he_min_raw, (unsigned)he_max_raw);
-    } else if (he_scan_count == 20000) {
-        boot_trace_value(31, he_max_raw);
-        uprintf("HE: swing@20000 min=%u max=%u\n", (unsigned)he_min_raw, (unsigned)he_max_raw);
-    }
-
-    boot_trace_heartbeat(he_scan_count / 2000U);
-
-    // Boot / ADC sanity diagnostics (throttled).
-    if (he_scan_count == 1) {
-        uprintf("HE: first matrix scan complete (69 sensors sampled)\n");
-    } else if ((he_scan_count % 5000) == 0) {
-        uint16_t r0  = he_read_sensor_raw(&he_sensors[0]);   // key [0,0]
-        uint16_t r32 = he_read_sensor_raw(&he_sensors[32]);  // A (SOCD pair)
-        uint16_t r46 = he_read_sensor_raw(&he_sensors[46]);  // Z (SOCD pair)
-        uprintf("HE: scan=%lu adc[0]=%u adc[32]=%u adc[46]=%u\n",
-                (unsigned long)he_scan_count, (unsigned)r0, (unsigned)r32, (unsigned)r46);
     }
 
     return changed;

@@ -24,36 +24,6 @@
       "name": "KCM",
       "title": "Toggle Key Cancel Mode",
       "shortName": "KCM"
-    },
-    {
-      "name": "DEBUG0",
-      "title": "Diagnostic Verbosity 0",
-      "shortName": "DBG0"
-    },
-    {
-      "name": "DEBUG1",
-      "title": "Diagnostic Verbosity 1",
-      "shortName": "DBG1"
-    },
-    {
-      "name": "DEBUG2",
-      "title": "Diagnostic Verbosity 2",
-      "shortName": "DBG2"
-    },
-    {
-      "name": "DEBUG3",
-      "title": "Diagnostic Verbosity 3",
-      "shortName": "DBG3"
-    },
-    {
-      "name": "DEBUG4",
-      "title": "Diagnostic Verbosity 4",
-      "shortName": "DBG4"
-    },
-    {
-      "name": "DEBUG5",
-      "title": "Diagnostic Verbosity 5",
-      "shortName": "DBG5"
     }
   ],
   "menus": [
