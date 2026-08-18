@@ -337,10 +337,10 @@ static void he_mux_all_disabled(void) {
 
 // Enable mux `idx` and drive `addr` onto S0-S3.
 static void he_mux_select(uint8_t idx, uint8_t addr) {
+    // Drive the address lines while every mux is disabled (CE high), then
+    // enable the selected chip. Selecting first avoids switching S0-S3 while a
+    // mux output is live, which would glitch the wired-OR ADC bus.
     he_mux_all_disabled();
-    if (idx < HE_MUX_COUNT) {
-        gpio_write_pin_low(mux_ce_pins[idx]);
-    }
     for (uint8_t b = 0; b < HE_ADDR_LINES; b++) {
         if (addr & (1 << b)) {
             gpio_write_pin_high(mux_addr_pins[b]);
@@ -348,11 +348,16 @@ static void he_mux_select(uint8_t idx, uint8_t addr) {
             gpio_write_pin_low(mux_addr_pins[b]);
         }
     }
+    if (idx < HE_MUX_COUNT) {
+        gpio_write_pin_low(mux_ce_pins[idx]);
+    }
 }
 
 // Read a sensor struct directly (raw 12-bit ADC value, uncalibrated).
 uint16_t he_read_sensor_raw(const he_sensor_t *s) {
     he_mux_select(s->mux, s->addr);
+    // Let the mux output settle before sampling (see HE_MUX_SETTLE_US).
+    wait_us(HE_MUX_SETTLE_US);
     return (uint16_t)analogReadPin(HE_ADC_PIN);
 }
 
@@ -393,6 +398,9 @@ static bool he_calibrating = false;
 
 void he_start_calibration(void) {
     for (uint8_t i = 0; i < HE_SENSOR_COUNT; i++) {
+        if (i == HE_ENC_PUSH_INDEX) {
+            continue; // encoder push is a GPIO switch, not analog
+        }
         he_config[i].raw_min = HE_ADC_RAW_MAX;
         he_config[i].raw_max = 0;
     }
@@ -403,13 +411,22 @@ void he_start_calibration(void) {
 void he_end_calibration(void) {
     he_calibrating = false;
     for (uint8_t i = 0; i < HE_SENSOR_COUNT; i++) {
-        if (he_config[i].raw_max <= he_config[i].raw_min) {
-            // No plausible travel was observed — fall back to the mid-scale /
-            // full-scale defaults and warn, mirroring the original's "low
-            // ceiling value" message.
+        if (i == HE_ENC_PUSH_INDEX) {
+            continue; // encoder push is a GPIO switch, not analog
+        }
+        // Reject a zero/tiny span: it means the key was never actually pressed
+        // during calibration (only ADC noise was seen), not a real "low
+        // ceiling". Fall back to the boot auto-cal values (resting floor +
+        // measured ~700-count swing) instead of the uncalibrated mid/full-scale
+        // defaults the sensor can never physically reach.
+        if (he_config[i].raw_max - he_config[i].raw_min < HE_ADC_MIN_SPAN) {
             uprintf("Warning: Sensor %d low ceiling value\n", i);
-            he_config[i].raw_min = HE_ADC_RAW_MID;
-            he_config[i].raw_max = HE_ADC_RAW_MAX;
+            uint16_t base = HE_ADC_RAW_MID;
+            if (he_rest_floor[i] < HE_ADC_RAW_MAX) {
+                base = (he_rest_floor[i] > HE_ADC_REST_MARGIN) ? (he_rest_floor[i] - HE_ADC_REST_MARGIN) : 0;
+            }
+            he_config[i].raw_min = base;
+            he_config[i].raw_max = base + HE_ADC_TRAVEL_SPAN;
         }
     }
     uprintf("Calibration ended.\n");
@@ -476,25 +493,32 @@ static bool he_compute_pressed(he_key_config_t *c, bool *pressed, uint8_t travel
     switch (he_mode) {
         case HE_MODE_RAPID_TRIGGER:
             if (*pressed) {
+                // Track the peak while held. Release is *relative* to the peak
+                // (drop >= release_dist), or when the key drops back into the
+                // rest band (<= deadzone). The normal-mode absolute `release`
+                // threshold must NOT gate RT release — it sits above the
+                // deadzone and would self-cancel every engage-based re-press.
                 if (travel > c->peak) {
                     c->peak = travel;
                 }
                 uint8_t drop = c->peak - travel;
-                if (travel <= c->release || drop >= he_tuning.release_dist) {
+                if (travel <= he_tuning.deadzone || drop >= he_tuning.release_dist) {
                     c->valley = travel;
                     *pressed  = false;
                 }
                 return *pressed;
             }
+            // Not pressed: track the valley, then require the key to be above
+            // the deadzone rest band before any re-press can fire. Press either
+            // absolutely (passed actuation) or relatively (rose by `engage`
+            // from the valley).
             if (travel < c->valley) {
                 c->valley = travel;
             }
-            if (travel >= c->actuation) {
-                c->peak   = travel;
-                *pressed  = true;
-                return true;
+            if (travel <= he_tuning.deadzone) {
+                return false;
             }
-            if (travel >= he_tuning.deadzone && (travel - c->valley) >= he_tuning.engage) {
+            if (travel >= c->actuation || (travel - c->valley) >= he_tuning.engage) {
                 c->peak   = travel;
                 *pressed  = true;
                 return true;
@@ -802,9 +826,13 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
             uint8_t ia = socd_pairs[p][0];
             uint8_t ib = socd_pairs[p][1];
 
-            if (newly_pressed[ia] && !newly_pressed[ib]) {
+            if (newly_pressed[ia] && newly_pressed[ib]) {
+                // Simultaneous press: deterministic tie-break to the key with
+                // the greater travel (the more "committed" press).
+                socd_winner[p] = (he_config[ia].travel >= he_config[ib].travel) ? 0 : 1;
+            } else if (newly_pressed[ia]) {
                 socd_winner[p] = 0;
-            } else if (newly_pressed[ib] && !newly_pressed[ia]) {
+            } else if (newly_pressed[ib]) {
                 socd_winner[p] = 1;
             }
 
@@ -813,10 +841,13 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
             }
 
             if (he_phys_pressed[ia] && he_phys_pressed[ib]) {
-                if (socd_winner[p] == 0) {
-                    suppressed[ib] = true;
-                } else if (socd_winner[p] == 1) {
+                // Suppress the loser. A 0xFF winner (cold start — both keys
+                // already held with no rising edge, e.g. key-cancel mode was
+                // entered mid-hold) deterministically keeps the first key.
+                if (socd_winner[p] == 1) {
                     suppressed[ia] = true;
+                } else {
+                    suppressed[ib] = true;
                 }
             }
         }

@@ -33,6 +33,11 @@
 // Single ADC input used for all 69 sensors: PA3 == ADC1_IN3.
 #define HE_ADC_PIN        A3
 
+// Settle delay (µs) after selecting a mux channel before the ADC samples. The
+// 74HC4067 (~80 Ω Ron) + wired-OR bus stray capacitance form a small RC, so a
+// short delay removes cross-channel bleed between consecutive reads.
+#define HE_MUX_SETTLE_US 5
+
 // Mux enable lines (CE, active-LOW), index 0..4.
 #define HE_MUX_CE_PINS \
     { B0, A7, A6, A5, A4 }
@@ -99,6 +104,12 @@
 // Full-press swing in raw ADC counts (measured ~692 on the live board). This
 // is the span mapped to 0..100% travel after auto-calibration.
 #define HE_ADC_TRAVEL_SPAN 700
+
+// Minimum plausible raw span (raw_max - raw_min) for a calibrated key. Below
+// this the calibration is treated as "low ceiling" (the key was never actually
+// pressed). A real full press measures ~700 counts and ADC noise is <100, so
+// 200 rejects noise-only calibrations.
+#define HE_ADC_MIN_SPAN 200
 
 /* QMK's analog driver defaults to 10-bit (ADC_CFGR1_RES_10BIT); match the
  * original firmware's 12-bit ADC group configuration. */
