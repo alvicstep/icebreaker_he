@@ -108,10 +108,66 @@ in `keyboard.json`.
 
 ---
 
+## Keymap & custom keycodes (recovered)
+
+The full 3-layer keymap is a **contiguous `uint16_t` array @ flash `0x080146A6`**
+(3 layers × 80 halfwords = 5 rows × 16 columns, matching `LAYOUT` in
+`keyboard.json`). The original firmware has **three** layers, not four — the
+"layer 3" seen in earlier naive decodes was actually the string pool.
+
+**Keycode decode.** `0x7820`–`0x7828` are **standard QMK RGBlight keycodes**
+(`QK_UNDERGLOW_*`), *not* vendor keycodes:
+
+| Hex | QMK name | Alias | Hex | QMK name | Alias |
+|---|---|---|---|---|---|
+| `0x7820` | `QK_UNDERGLOW_TOGGLE` | `RGB_TOG` | `0x7825` | `QK_UNDERGLOW_SATURATION_UP` | `RGB_SAI` |
+| `0x7821` | `QK_UNDERGLOW_MODE_NEXT` | `RGB_MOD` | `0x7826` | `QK_UNDERGLOW_SATURATION_DOWN` | `RGB_SAD` |
+| `0x7822` | `QK_UNDERGLOW_MODE_PREVIOUS` | `RGB_RMOD` | `0x7827` | `QK_UNDERGLOW_VALUE_UP` | `RGB_VAI` |
+| `0x7823` | `QK_UNDERGLOW_HUE_UP` | `RGB_HUI` | `0x7828` | `QK_UNDERGLOW_VALUE_DOWN` | `RGB_VAD` |
+| `0x7824` | `QK_UNDERGLOW_HUE_DOWN` | `RGB_HUD` | | | |
+
+The **real** vendor keycodes are `QK_KB_0`–`QK_KB_8` = `0x7E00`–`0x7E08`
+(QMK's standard keyboard-keycode range, so no custom enum is needed):
+
+| Keycode | Handler @ | Effect |
+|---|---|---|
+| `QK_KB_0` `0x7E00` | `0x0800ABFC` | **APC mode** — `he_set_mode(NORMAL)`, actuation 85, prints `Actuation Point Control Mode set` + `[PCB_SETTINGS]: APC MODE` |
+| `QK_KB_1` `0x7E01` | `0x0800AC26` | **Rapid Trigger mode** — `he_set_mode(RAPID_TRIGGER)`, actuation 0, prints `Rapid Trigger Mode set` + `[PCB_SETTINGS]: RT MODE` |
+| `QK_KB_2` `0x7E02` | `0x0800AC4C` | **Key Cancel (SOCD) mode** — `he_set_mode(KEY_CANCEL)`, actuation 170, prints `Key Cancel Mode set` |
+| `QK_KB_3` `0x7E03` | `0x0800AC66` | Logging level 0 |
+| `QK_KB_4` `0x7E04` | `0x0800AC7A` | Logging level 1 |
+| `QK_KB_5` `0x7E05` | `0x0800AC8A` | Logging level 2 (blocking keystrokes) |
+| `QK_KB_6` `0x7E06` | `0x0800AC9A` | Logging level 3 (none) |
+| `QK_KB_7` `0x7E07` | `0x0800ACAA` | Logging level 4 |
+| `QK_KB_8` `0x7E08` | `0x0800ACBA` | Logging level 5 |
+
+**Handler** `process_record` @ `0x0800ABE4`: `sub.w r0, r0, #0x7E00;
+cmp r0, #8; bhi -> return true`, then `tbb [pc, r0]` (table @ `0x0800ABF2`,
+bytes `05 1A 2D 3A 44 4C 54 5C 64`). It acts on **key press only** and returns
+`false` (consumed) for every `QK_KB_*` keycode.
+
+**Decoded layers** (the two non-base layers):
+
+- **Layer 1** (`MO(1)`, fn): `ESC F1..F12 TRNS TRNS RGB_TOG` /
+  `TRNS×14 RGB_VAI` / `TRNS×12 MPLY RGB_VAD` /
+  `MO(2) TRNS×6 RGB_HUD RGB_HUI RGB_SAD RGB_SAI MUTE VOLU TRNS` /
+  `TRNS×6 MPRV VOLD MNXT TRNS`.
+- **Layer 2** (`MO(2)`, settings): `QK_BOOT TRNS×15` /
+  `TRNS QK_KB_0 QK_KB_1 QK_KB_2 TRNS×11` / `TRNS×14` /
+  `TRNS QK_KB_4 QK_KB_8 QK_KB_3 QK_KB_5 TRNS×9` / `TRNS×10`.
+
+The settings layer therefore maps **Q/W/E** → APC / Rapid Trigger / Key Cancel
+and **Z/X/C/V** → logging 1 / 5 / 0 / 2. `QK_KB_6`/`QK_KB_7` (logging 3/4) are
+keycode-only and not placed on the keymap.
+
+**VIA custom values** — the original exposes exactly IDs **1–9** plus **12**
+(`set_all`); IDs 10–11 and 13–16 are unhandled (SET falls through silently).
+`get_value` @ `0x0800A800`, `set_value` @ `0x0800A8F0` (both `tbb`-dispatched).
+
+---
+
 ## What was *not* recovered
 
-- Exact **name→value** mapping of the custom keycodes `0x7820`–`0x7828`
-  (layer 3 bottom row) — they are non-standard, not `QK_USER`.
 - SOCD A&D / Z&X as *independent* VIA IDs — they exist only as the mode-2
   "Key Cancel" behaviour (ID 6). IDs 10–16 are silent on SET → not exposed.
 - The vendor's VIA definitions asset (`assets/icebreaker_HE_via_definitions.json`

@@ -92,6 +92,22 @@ void                he_set_engage(uint8_t value);
 uint8_t             he_get_release_dist(void);
 void                he_set_release_dist(uint8_t value);
 
+// Diagnostic logging level selected by QK_KB_3..QK_KB_8 (see he_handle_keycode).
+uint8_t he_get_logging_mode(void);
+
+// Recovered custom keycodes (QK_KB_0 .. QK_KB_8). The original firmware puts
+// these on layer 2 (the settings layer) and handles them in the keyboard-level
+// process_record handler @ flash 0x0800abe4:
+//
+//   QK_KB_0  Actuation Point Control (APC) mode   -> HE_MODE_NORMAL
+//   QK_KB_1  Rapid Trigger (RT) mode              -> HE_MODE_RAPID_TRIGGER
+//   QK_KB_2  Key Cancel (SOCD) mode               -> HE_MODE_KEY_CANCEL
+//   QK_KB_3..QK_KB_8  Diagnostic logging level 0..5
+//
+// The handler acts on key press only and returns false (consumed) for every
+// QK_KB keycode; keymaps wire this into their process_record_user().
+bool he_handle_keycode(uint16_t keycode, keyrecord_t *record);
+
 // Noise-floor calibration (recovered start/end buttons, VIA IDs 4/5).
 void he_start_calibration(void);
 void he_end_calibration(void);

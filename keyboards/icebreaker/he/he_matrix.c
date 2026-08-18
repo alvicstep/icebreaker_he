@@ -234,6 +234,97 @@ void he_set_release_dist(uint8_t value) {
 }
 
 /* --------------------------------------------------------------------------
+ * Recovered custom keycodes (QK_KB_0 .. QK_KB_8)
+ *
+ * The original process_record handler (flash @ 0x0800abe4) subtracts QK_KB
+ * (0x7E00) from the keycode and switches on the result (0..8), acting on key
+ * press only and returning false (consumed) for every QK_KB keycode:
+ *
+ *   QK_KB_0 -> APC mode (actuation = 85)   QK_KB_3 -> logging 0
+ *   QK_KB_1 -> RT mode  (actuation = 0)    QK_KB_4 -> logging 1
+ *   QK_KB_2 -> Key Cancel (actuation = 170) QK_KB_5 -> logging 2 (blocking)
+ *                                          QK_KB_6 -> logging 3 (none)
+ *                                          QK_KB_7 -> logging 4
+ *                                          QK_KB_8 -> logging 5
+ *
+ * The original also persists a mode-specific default threshold (85/0/170) to
+ * EEPROM via a helper @ 0x0800ab90; that side effect is omitted here in favour
+ * of the RAM-only he_set_mode() path used by the VIA handler.
+ * ------------------------------------------------------------------------ */
+
+// Diagnostic logging level (set by QK_KB_3..8). The original gates trace output
+// on this value; the full logging subsystem is not reconstructed, so we keep
+// only the recovered selector for API completeness.
+static uint8_t he_logging_mode;
+
+uint8_t he_get_logging_mode(void) {
+    return he_logging_mode;
+}
+
+bool he_handle_keycode(uint16_t keycode, keyrecord_t *record) {
+    switch (keycode) {
+        case QK_KB_0: // Actuation Point Control mode
+            if (record->event.pressed) {
+                he_set_mode(HE_MODE_NORMAL);
+                uprintf("Actuation Point Control Mode set\n");
+                uprintf("[PCB_SETTINGS]: APC MODE\n");
+            }
+            return false;
+        case QK_KB_1: // Rapid Trigger mode
+            if (record->event.pressed) {
+                he_set_mode(HE_MODE_RAPID_TRIGGER);
+                uprintf("Rapid Trigger Mode set\n");
+                uprintf("[PCB_SETTINGS]: RT MODE\n");
+            }
+            return false;
+        case QK_KB_2: // Key Cancel (SOCD) mode
+            if (record->event.pressed) {
+                he_set_mode(HE_MODE_KEY_CANCEL);
+                uprintf("Key Cancel Mode set\n");
+            }
+            return false;
+        case QK_KB_3:
+            if (record->event.pressed) {
+                he_logging_mode = 0;
+                uprintf("Logging Mode set to 0\n");
+            }
+            return false;
+        case QK_KB_4:
+            if (record->event.pressed) {
+                he_logging_mode = 1;
+                uprintf("Logging Mode set to 1\n");
+            }
+            return false;
+        case QK_KB_5:
+            if (record->event.pressed) {
+                he_logging_mode = 2;
+                uprintf("Logging Mode set to 2 (blocking keystrokes)\n");
+            }
+            return false;
+        case QK_KB_6:
+            if (record->event.pressed) {
+                he_logging_mode = 3;
+                uprintf("Logging Mode set to 3(none)\n");
+            }
+            return false;
+        case QK_KB_7:
+            if (record->event.pressed) {
+                he_logging_mode = 4;
+                uprintf("Logging Mode set to 4\n");
+            }
+            return false;
+        case QK_KB_8:
+            if (record->event.pressed) {
+                he_logging_mode = 5;
+                uprintf("Logging Mode set to 5\n");
+            }
+            return false;
+        default:
+            return true;
+    }
+}
+
+/* --------------------------------------------------------------------------
  * Mux + ADC helpers
  * ------------------------------------------------------------------------ */
 
