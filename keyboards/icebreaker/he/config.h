@@ -126,6 +126,12 @@
 // 200 rejects noise-only calibrations.
 #define HE_ADC_MIN_SPAN 200
 
+// During VIA calibration, a key counts as "pressed" (and its LED latches green)
+// once its raw reading climbs this far above the measured rest floor. Half the
+// full-press swing (~350 counts) cleanly separates a press from ADC noise while
+// still catching a light press.
+#define HE_CAL_PRESS_MARGIN (HE_ADC_TRAVEL_SPAN / 2)
+
 /* QMK's analog driver defaults to 10-bit (ADC_CFGR1_RES_10BIT); match the
  * original firmware's 12-bit ADC group configuration. */
 #define ADC_RESOLUTION ADC_CFGR1_RES_12BIT
@@ -204,9 +210,9 @@
 
 // rgblight boots ON in static mode (the QMK default); set the colour to a
 // light/sky blue so the strip is visibly working on first power-up.
-// QMK hue 180 + reduced saturation gives a light blue (hue 160 is cyan/teal,
+// QMK hue 167 + reduced saturation gives a light blue (hue 160 is cyan/teal,
 // which reads green; pure blue is 170).
-#define RGBLIGHT_DEFAULT_HUE     180
+#define RGBLIGHT_DEFAULT_HUE     167
 #define RGBLIGHT_DEFAULT_SAT     160
 
 // 68 LEDs at full brightness draw ~4 A — far past USB's 0.5 A — which browns

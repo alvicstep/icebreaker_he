@@ -114,6 +114,90 @@ in `keyboard.json`.
 
 ---
 
+## Calibration LED confirmation (recovered)
+
+The original firmware used the RGB strip as a **visual confirmation of VIA
+calibration**: pressing "Start calibration" (VIA ID 4) turns the whole strip
+**RED**, and "End calibration" (VIA ID 5) restores the previous colour and
+brightness.
+
+### Start calibration (VIA ID 4)
+
+`set_value` dispatches ID 4 to `0x0800A9F4`, which — after printing the
+`[SYSTEM]: Calibration started…` banner and resetting the per-key min/max —
+calls the LED-red routine @ `0x0800A570`:
+
+| Step | Evidence |
+|---|---|
+| Save current brightness | `bl 0x0800D9A0` → stored to RAM `0x20003FEF` |
+| Save current RGB colour | `bl 0x0800DA88` (returns 24-bit `0x00BBGGRR`) → split into 3 bytes @ RAM `0x20003FEC` |
+| Set every LED **red** | loop ×69: `rgblight_sethsv_at(h=0, s=255, v=255, index)` = `0x0800DD6C` → `rgblight_setrgb_at` `0x0800DD3C` |
+| Commit frame | `bl 0x0800DAA8` (DMA kick to the strip) |
+
+The per-LED index comes from a **serpentine remap table @ flash `0x08013D88`**
+(69 bytes) — the physical underglow is wired in a zig-zag that reverses on
+every other row, so the matrix→LED order is not linear:
+
+```
+matrix idx:  0..15  ->  LED 0..15      (row 0, left→right)
+            16..30  ->  LED 30..16     (row 1, right→left)
+            31..44  ->  LED 31..44     (row 2, left→right)
+            45..58  ->  LED 58..45     (row 3, right→left)
+            59..68  ->  LED 59..67, 0  (row 4; last entry is the encoder-push dummy)
+```
+
+Every LED index 0–67 is hit exactly once, so the strip turns **solid red**
+(`HSV_RED` = `0, 255, 255`).
+
+### Per-key press feedback (green latch)
+
+While calibration runs, the original firmware also drives **each key's LED
+individually** as the user presses it, so pressed keys visibly "check off":
+
+| Routine | Address | Role |
+|---|---|---|
+| Sampling loop | `0x080099F8` | reads each sensor (5-sample average via `0x08009850`), tracks a running max, then classifies + updates LEDs |
+| State classifier | `0x0800A5D0` | maps each key's averaged reading to a 3-state byte |
+| LED updater | `0x0800A608` | loops keys 0–67 and repaints each LED from its state |
+
+The classifier writes a per-key state byte (array @ RAM `0x2000125D`, 2 bytes per
+key):
+
+| Reading | State | LED hue |
+|---|---|---|
+| `< 600`   | 0 (resting)   | 0 (red)    |
+| `600–634` | 1 (transition) | 45 (yellow) |
+| `> 634`   | 2 (pressed)   | 90 (green)  |
+
+The LED updater maps state → hue via
+`rgblight_sethsv_at(hue, 255, 255, remap_table[key])` (the same serpentine table
+above) and commits the frame only when a state actually changed. Because a key
+only moves 0→1→2 in one direction and re-classification never returns it to a
+lower state, the green **latches** — once pressed, a key's LED stays green until
+calibration ends.
+
+`he_matrix.c` reproduces this more simply: a key's LED is latched to `HSV_GREEN`
+the first time its raw reading climbs `HE_CAL_PRESS_MARGIN` (~half the ~700-count
+press swing) above the boot auto-cal rest floor.
+
+### End calibration (VIA ID 5)
+
+`set_value` dispatches ID 5 to `0x0800AA20`, which runs the restore helper
+@ `0x0800A658`:
+
+- `rgblight_set_val(saved_brightness)` then `rgblight_setrgb(saved_r, saved_g, saved_b)`
+  — restores the colour and brightness captured at start.
+- A separate check @ `0x0800A494` warns `Warning: Sensor %d has low ceiling value: %d`
+  for any sensor whose resting floor is still ≤ 634 (never pressed during the run).
+
+Neither the red indicator nor the restore is written to EEPROM — the strip is
+only driven in RAM. `he_matrix.c` reproduces this with
+`rgblight_get_hsv()` → `rgblight_sethsv_noeeprom(HSV_RED)` on start, a
+per-key `rgblight_sethsv_at(HSV_GREEN, remap[i])` latch in the scan loop while
+calibrating, and `rgblight_sethsv_noeeprom(saved)` on end.
+
+---
+
 ## Keymap & custom keycodes (recovered)
 
 The full 3-layer keymap is a **contiguous `uint16_t` array @ flash `0x080146A6`**

@@ -33,6 +33,7 @@
 #include "gpio.h"
 #include "keyboard.h"
 #include "print.h"
+#include "rgblight.h"
 
 /* --------------------------------------------------------------------------
  * Bootmagic reset-loop guard
@@ -159,6 +160,25 @@ static const uint8_t socd_pairs[][2] = {
     {46, 47},
 };
 #define SOCD_PAIR_COUNT (sizeof(socd_pairs) / sizeof(socd_pairs[0]))
+
+// Recovered LED remap table @ flash 0x08013D88 — maps sensor-table index to
+// the WS2812 strip position. The underglow is wired in a serpentine: rows 0, 2
+// and 4 run left-to-right, rows 1 and 3 run right-to-left. Entry 68 (encoder
+// push) is a dummy (0) and is never lit.
+static const uint8_t he_led_remap[HE_SENSOR_COUNT] = {
+    // row 0 (left-to-right)
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    // row 1 (right-to-left)
+    30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16,
+    // row 2 (left-to-right)
+    31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44,
+    // row 3 (right-to-left)
+    58, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48, 47, 46, 45,
+    // row 4 (left-to-right)
+    59, 60, 61, 62, 63, 64, 65, 66, 67,
+    // encoder push (sensor 68) — dummy, never lit
+    0,
+};
 
 // Rotary-encoder push is the last sensor-table entry (68), read via GPIO
 // rather than the analog mux.
@@ -359,8 +379,20 @@ static bool he_read_encoder_push(void) {
 
 static bool he_calibrating = false;
 
+#if defined(RGBLIGHT_ENABLE)
+// Recovered behaviour: the original firmware turned the RGB strip RED while a
+// VIA calibration was running, then restored the previous colour on "end".
+static hsv_t cal_saved_hsv;
+// Per-key latch: true once a key has been pressed during the current run (its
+// LED turns green and stays green until calibration ends).
+static bool he_cal_latched[HE_SENSOR_COUNT];
+#endif
+
 void he_start_calibration(void) {
     for (uint8_t i = 0; i < HE_SENSOR_COUNT; i++) {
+#if defined(RGBLIGHT_ENABLE)
+        he_cal_latched[i] = false;
+#endif
         if (i == HE_ENC_PUSH_INDEX) {
             continue; // encoder push is a GPIO switch, not analog
         }
@@ -368,6 +400,11 @@ void he_start_calibration(void) {
         he_config[i].raw_max = 0;
     }
     he_calibrating = true;
+#if defined(RGBLIGHT_ENABLE)
+    // Visual confirmation: save the current colour and turn the strip red.
+    cal_saved_hsv = rgblight_get_hsv();
+    rgblight_sethsv_noeeprom(HSV_RED);
+#endif
     uprintf("Calibration started, fully press each key and end calibration in VIA.\n");
 }
 
@@ -392,6 +429,10 @@ void he_end_calibration(void) {
             he_config[i].raw_max = base + HE_ADC_TRAVEL_SPAN;
         }
     }
+#if defined(RGBLIGHT_ENABLE)
+    // Restore the pre-calibration colour.
+    rgblight_sethsv_noeeprom(cal_saved_hsv.h, cal_saved_hsv.s, cal_saved_hsv.v);
+#endif
     uprintf("Calibration ended.\n");
 }
 
@@ -677,6 +718,18 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
             if (raw < c->raw_min) c->raw_min = raw;
             if (raw > c->raw_max) c->raw_max = raw;
         }
+
+#if defined(RGBLIGHT_ENABLE)
+        // Per-key calibration feedback (recovered): the strip starts red and a
+        // key's LED latches green once it is pressed, so the user can see which
+        // keys have already been calibrated. `he_rest_floor[i]` is the boot
+        // auto-cal resting value, so this is robust against the still-growing
+        // raw_min/raw_max during the run.
+        if (he_calibrating && !he_cal_latched[i] && raw > he_rest_floor[i] + HE_CAL_PRESS_MARGIN) {
+            he_cal_latched[i] = true;
+            rgblight_sethsv_at(HSV_GREEN, he_led_remap[i]);
+        }
+#endif
 
         uint8_t travel = he_raw_to_travel(c, raw);
         bool    was    = he_phys_pressed[i];
