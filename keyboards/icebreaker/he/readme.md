@@ -124,6 +124,9 @@ disconnect — this reconstruction fixes that bug.
 | 9 | Release distance | 5–20 |
 | 12 | Set all (batch) | — |
 
+All numeric values are clamped to the documented range on SET (and on EEPROM
+load), so an out-of-range packet degrades to the nearest valid bound.
+
 Custom keycodes (layer 3): `APCM`, `RTM`, `KCM`, `DEBUG0`–`DEBUG5`. The
 "Firmware Update" key is `QK_BOOTLOADER` (`0x7C00`) on layer 2.
 

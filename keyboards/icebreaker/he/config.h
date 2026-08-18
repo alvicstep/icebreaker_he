@@ -67,6 +67,21 @@
 #define HE_ENGAGE_DEFAULT       10
 #define HE_RELEASE_DIST_DEFAULT 10
 
+/* VIA slider ranges (from icebreaker_HE_via_definitions.json). The matrix
+ * setters clamp raw-HID values to these bounds so a malformed / out-of-range
+ * packet cannot store an unusable threshold (e.g. actuation 0 or 255) into
+ * RAM or EEPROM. */
+#define HE_ACTUATION_MIN        10
+#define HE_ACTUATION_MAX        90
+#define HE_RELEASE_MIN          10
+#define HE_RELEASE_MAX          90
+#define HE_DEADZONE_MIN         15
+#define HE_DEADZONE_MAX         60
+#define HE_ENGAGE_MIN            5
+#define HE_ENGAGE_MAX           20
+#define HE_RELEASE_DIST_MIN      5
+#define HE_RELEASE_DIST_MAX     20
+
 /* ADC is read at 12-bit resolution in the original firmware. */
 #define HE_ADC_RESOLUTION_BITS  12
 #define HE_ADC_RAW_MAX          ((1 << HE_ADC_RESOLUTION_BITS) - 1)

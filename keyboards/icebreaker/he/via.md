@@ -93,6 +93,11 @@ The original firmware had several persistence bugs, fixed here:
 - **Deadzone (ID 7) GET/SET asymmetry fixed.** The original returned a 16-bit
   `[hi=0, lo=val]` on GET but read only 8 bits on SET, so a VIA `range` could
   not round-trip it. Both sides are now a single 8-bit byte.
+- **Range validation added.** The matrix setters clamp every threshold/tuning
+  value to its documented range (actuation/release 10–90, deadzone 15–60,
+  engage/release-distance 5–20). Values are clamped — not rejected — so an
+  out-of-range raw-HID packet degrades to the nearest valid bound instead of
+  writing an unusable value. EEPROM values are clamped on load as well.
 
 ---
 

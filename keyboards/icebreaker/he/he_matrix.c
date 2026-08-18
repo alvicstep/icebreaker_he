@@ -184,13 +184,28 @@ he_key_config_t *he_get_config(uint8_t index) {
     return (index < HE_SENSOR_COUNT) ? &he_config[index] : NULL;
 }
 
+// Clamp an 8-bit value into [lo, hi]. Values from the VIA raw-HID channel are
+// clamped (not rejected) so an out-of-range packet degrades to the nearest
+// valid bound rather than writing an unusable threshold.
+static uint8_t he_clamp_u8(uint8_t value, uint8_t lo, uint8_t hi) {
+    if (value < lo) {
+        return lo;
+    }
+    if (value > hi) {
+        return hi;
+    }
+    return value;
+}
+
 void he_set_actuation(uint8_t value) {
+    value = he_clamp_u8(value, HE_ACTUATION_MIN, HE_ACTUATION_MAX);
     for (uint8_t i = 0; i < HE_SENSOR_COUNT; i++) {
         he_config[i].actuation = value;
     }
 }
 
 void he_set_release(uint8_t value) {
+    value = he_clamp_u8(value, HE_RELEASE_MIN, HE_RELEASE_MAX);
     for (uint8_t i = 0; i < HE_SENSOR_COUNT; i++) {
         he_config[i].release = value;
     }
@@ -223,7 +238,7 @@ uint8_t he_get_deadzone(void) {
 }
 
 void he_set_deadzone(uint8_t value) {
-    he_tuning.deadzone = value;
+    he_tuning.deadzone = he_clamp_u8(value, HE_DEADZONE_MIN, HE_DEADZONE_MAX);
 }
 
 uint8_t he_get_engage(void) {
@@ -231,7 +246,7 @@ uint8_t he_get_engage(void) {
 }
 
 void he_set_engage(uint8_t value) {
-    he_tuning.engage = value;
+    he_tuning.engage = he_clamp_u8(value, HE_ENGAGE_MIN, HE_ENGAGE_MAX);
 }
 
 uint8_t he_get_release_dist(void) {
@@ -239,7 +254,7 @@ uint8_t he_get_release_dist(void) {
 }
 
 void he_set_release_dist(uint8_t value) {
-    he_tuning.release_dist = value;
+    he_tuning.release_dist = he_clamp_u8(value, HE_RELEASE_DIST_MIN, HE_RELEASE_DIST_MAX);
 }
 
 /* --------------------------------------------------------------------------
@@ -468,8 +483,10 @@ void he_load_from_eeprom(void) {
     he_eeprom_key_config_t rec[HE_SENSOR_COUNT];
     eeconfig_read_kb_datablock(rec, 0, sizeof(rec));
     for (uint8_t i = 0; i < HE_SENSOR_COUNT; i++) {
-        he_config[i].actuation = rec[i].actuation;
-        he_config[i].release   = rec[i].release;
+        // Clamp on load too: a corrupted / legacy record must not inject an
+        // out-of-range threshold into the working config.
+        he_config[i].actuation = he_clamp_u8(rec[i].actuation, HE_ACTUATION_MIN, HE_ACTUATION_MAX);
+        he_config[i].release   = he_clamp_u8(rec[i].release, HE_RELEASE_MIN, HE_RELEASE_MAX);
     }
 
     he_settings_eeprom_t settings;
@@ -477,9 +494,9 @@ void he_load_from_eeprom(void) {
     if (settings.actuation_mode <= HE_MODE_KEY_CANCEL) {
         he_mode = (he_actuation_mode_t)settings.actuation_mode;
     }
-    he_tuning.deadzone     = settings.deadzone;
-    he_tuning.engage       = settings.engage;
-    he_tuning.release_dist = settings.release_dist;
+    he_tuning.deadzone     = he_clamp_u8(settings.deadzone, HE_DEADZONE_MIN, HE_DEADZONE_MAX);
+    he_tuning.engage       = he_clamp_u8(settings.engage, HE_ENGAGE_MIN, HE_ENGAGE_MAX);
+    he_tuning.release_dist = he_clamp_u8(settings.release_dist, HE_RELEASE_DIST_MIN, HE_RELEASE_DIST_MAX);
 }
 
 void he_save_to_eeprom(void) {
