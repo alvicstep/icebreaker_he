@@ -63,8 +63,10 @@
 
 #define HE_ACTUATION_DEFAULT    50   // % travel that registers a press
 #define HE_RELEASE_DEFAULT      30   // % travel that releases the key
-#define HE_DEADZONE_DEFAULT     15
-#define HE_ENGAGE_DEFAULT       10
+// Hardcoded rapid-trigger tuning defaults: deadzone 50, engage 15, disengage
+// (release distance) 10. The boot actuation mode is set in he_matrix.c.
+#define HE_DEADZONE_DEFAULT     50
+#define HE_ENGAGE_DEFAULT       15
 #define HE_RELEASE_DIST_DEFAULT 10
 
 /* VIA slider ranges (from icebreaker_HE_via_definitions.json). The matrix

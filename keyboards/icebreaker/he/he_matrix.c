@@ -145,7 +145,10 @@ const he_sensor_t he_sensors[HE_SENSOR_COUNT] = {
 
 static he_key_config_t he_config[HE_SENSOR_COUNT];
 static uint16_t       he_rest_floor[HE_SENSOR_COUNT]; // per-sensor resting floor (auto-cal)
-static he_actuation_mode_t he_mode = HE_MODE_NORMAL;
+// Hardcoded boot defaults: Rapid Trigger with deadzone 50 / engage 15 /
+// disengage (release distance) 10. These apply on a fresh EEPROM; a persisted
+// VIA setting still overrides them on subsequent boots.
+static he_actuation_mode_t he_mode = HE_MODE_RAPID_TRIGGER;
 static he_tuning_t he_tuning       = {
     .deadzone     = HE_DEADZONE_DEFAULT,
     .engage       = HE_ENGAGE_DEFAULT,
@@ -484,7 +487,7 @@ void he_save_to_eeprom(void) {
         rec[i].actuation = he_config[i].actuation;
         rec[i].release   = he_config[i].release;
         rec[i].reserved  = 0;
-        rec[i].engage    = HE_ENGAGE_DEFAULT;
+        rec[i].engage    = 10; // recovered per-key default (unused; global engage is in the settings record)
         rec[i].raw       = 0x02BC; // recovered default (700)
     }
     eeconfig_update_kb_datablock(rec, 0, sizeof(rec));
