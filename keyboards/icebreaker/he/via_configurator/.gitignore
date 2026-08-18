@@ -1,0 +1,2 @@
+# Re-include VIA definition files that are ignored by the root `.gitignore` (`via*.json`)
+!via*.json
