@@ -16,7 +16,8 @@
  * Implemented (previously TODO):
  *   - Rapid trigger / key-cancel (SOCD) / actuation-point control state machine.
  *   - Noise-floor calibration (recovered 10-sample-min @ 0x080098E0).
- *   - EEPROM persistence of the per-key thresholds (6-byte structs, 414 B).
+ *   - EEPROM persistence of the per-key thresholds (6-byte structs, 414 B) and
+ *     the global settings (actuation mode + rapid-trigger tuning, 4 B).
  *   - 12-bit ADC group config (ADC_RESOLUTION in config.h).
  *
  * Encoder (recovered):
@@ -206,9 +207,17 @@ he_actuation_mode_t he_get_mode(void) {
 void he_set_mode(he_actuation_mode_t mode) {
     if (mode <= HE_MODE_KEY_CANCEL) {
         he_mode = mode;
+        // The original kept the mode RAM-only, so it reset to Normal on every
+        // power-cycle. Persist immediately so a mode change survives reboot
+        // (discrete setting, no slider wear concern).
+        he_save_settings_to_eeprom();
     }
 }
 
+// Rapid-trigger tuning setters update RAM only. They are VIA slider values
+// (IDs 7/8/9), so persisting on every drag would hammer the flash-backed EEPROM
+// and stall the VIA command handler. They are persisted by he_save_to_eeprom()
+// on the save action (VIA ID 3 or the generic id_custom_save / 0x09).
 uint8_t he_get_deadzone(void) {
     return he_tuning.deadzone;
 }
@@ -249,7 +258,8 @@ void he_set_release_dist(uint8_t value) {
  *
  * The original also persists a mode-specific default threshold (85/0/170) to
  * EEPROM via a helper @ 0x0800ab90; that side effect is omitted here in favour
- * of the RAM-only he_set_mode() path used by the VIA handler.
+ * of the he_set_mode() path used by the VIA handler (which persists the mode
+ * itself).
  * ------------------------------------------------------------------------ */
 
 // Diagnostic logging level (set by QK_KB_3..8). The original gates trace output
@@ -437,19 +447,39 @@ bool he_is_calibrating(void) {
 }
 
 /* --------------------------------------------------------------------------
- * EEPROM persistence (QMK keyboard data block, 69 x 6 bytes = 414 B)
+ * EEPROM persistence (QMK keyboard data block)
  *
- * Only actuation/release are written by the VIA "save" action (ID 3); the
- * remaining four recovered bytes keep their init defaults.
+ * Layout: 69 x he_eeprom_key_config_t (414 B) followed by one
+ * he_settings_eeprom_t (4 B) = 418 B total. The per-key records store the
+ * actuation/release thresholds; the trailing settings record stores the
+ * actuation mode and rapid-trigger tuning that the original firmware kept
+ * RAM-only (and therefore lost on reboot).
  * ------------------------------------------------------------------------ */
 
 void he_load_from_eeprom(void) {
+    // Guard against an invalid / version-mismatched block (e.g. a size bump):
+    // reading it would zero out the thresholds, so keep the defaults seeded by
+    // he_config_set_defaults() and (re)establish the block instead.
+    if (!eeconfig_is_kb_datablock_valid()) {
+        he_save_to_eeprom();
+        return;
+    }
+
     he_eeprom_key_config_t rec[HE_SENSOR_COUNT];
     eeconfig_read_kb_datablock(rec, 0, sizeof(rec));
     for (uint8_t i = 0; i < HE_SENSOR_COUNT; i++) {
         he_config[i].actuation = rec[i].actuation;
         he_config[i].release   = rec[i].release;
     }
+
+    he_settings_eeprom_t settings;
+    eeconfig_read_kb_datablock(&settings, HE_SETTINGS_EEPROM_OFFSET, sizeof(settings));
+    if (settings.actuation_mode <= HE_MODE_KEY_CANCEL) {
+        he_mode = (he_actuation_mode_t)settings.actuation_mode;
+    }
+    he_tuning.deadzone     = settings.deadzone;
+    he_tuning.engage       = settings.engage;
+    he_tuning.release_dist = settings.release_dist;
 }
 
 void he_save_to_eeprom(void) {
@@ -462,6 +492,17 @@ void he_save_to_eeprom(void) {
         rec[i].raw       = 0x02BC; // recovered default (700)
     }
     eeconfig_update_kb_datablock(rec, 0, sizeof(rec));
+    he_save_settings_to_eeprom();
+}
+
+void he_save_settings_to_eeprom(void) {
+    he_settings_eeprom_t settings = {
+        .actuation_mode = (uint8_t)he_mode,
+        .deadzone       = he_tuning.deadzone,
+        .engage         = he_tuning.engage,
+        .release_dist   = he_tuning.release_dist,
+    };
+    eeconfig_update_kb_datablock(&settings, HE_SETTINGS_EEPROM_OFFSET, sizeof(settings));
 }
 
 // Map a raw ADC value to a 0..100 travel percentage. The live board confirmed

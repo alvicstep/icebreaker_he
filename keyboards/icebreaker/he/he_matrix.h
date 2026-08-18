@@ -29,8 +29,8 @@ typedef struct {
     uint8_t addr;
 } he_sensor_t;
 
-// Actuation modes (recovered custom value ID 6). RAM-only in the original
-// firmware — resets to Normal on reboot.
+// Actuation modes (recovered custom value ID 6). The original firmware kept
+// this RAM-only (resetting to Normal on reboot); we persist it to EEPROM.
 typedef enum {
     HE_MODE_NORMAL        = 0,
     HE_MODE_RAPID_TRIGGER = 1,
@@ -50,8 +50,8 @@ typedef struct {
     bool     pressed;      // reported press state (post-SOCD, matrix output)
 } he_key_config_t;
 
-// Global rapid-trigger tuning (recovered custom value IDs 7/8/9). RAM-only,
-// like the actuation mode — the original never persists these.
+// Global rapid-trigger tuning (recovered custom value IDs 7/8/9). The original
+// firmware never persisted these; we now persist them to EEPROM.
 typedef struct {
     uint8_t deadzone;      // rapid-trigger "rest" band, % travel (ID 7)
     uint8_t engage;        // downward travel to re-press, % (ID 8)
@@ -69,6 +69,22 @@ typedef struct __attribute__((packed)) {
     uint16_t raw;
 } he_eeprom_key_config_t;
 
+// On-EEPROM global settings record, stored once immediately after the 69
+// per-key records. The original firmware kept the actuation mode and the
+// rapid-trigger tuning in RAM only, so both reset on every power-cycle; we
+// persist them here (see he_matrix.c).
+typedef struct __attribute__((packed)) {
+    uint8_t actuation_mode; // 0 = normal, 1 = rapid trigger, 2 = key cancel
+    uint8_t deadzone;       // rapid-trigger rest band, % travel (ID 7)
+    uint8_t engage;         // downward travel to re-press, % (ID 8)
+    uint8_t release_dist;   // upward travel to release, % (ID 9)
+} he_settings_eeprom_t;
+
+// Byte offset of the settings record within the keyboard EEPROM data block
+// (immediately after the 69 per-key records). Keep in sync with
+// EECONFIG_KB_DATA_SIZE in config.h.
+#define HE_SETTINGS_EEPROM_OFFSET (HE_SENSOR_COUNT * sizeof(he_eeprom_key_config_t))
+
 // The recovered sensor table (defined in he_matrix.c).
 extern const he_sensor_t he_sensors[HE_SENSOR_COUNT];
 
@@ -82,7 +98,7 @@ void              he_set_actuation(uint8_t value);
 void              he_set_release(uint8_t value);
 void              he_set_all_actuation(uint8_t value);
 
-// Actuation mode + rapid-trigger tuning (RAM-only, see he_tuning_t).
+// Actuation mode + rapid-trigger tuning (persisted to EEPROM, see he_tuning_t).
 he_actuation_mode_t he_get_mode(void);
 void                he_set_mode(he_actuation_mode_t mode);
 uint8_t             he_get_deadzone(void);
@@ -113,6 +129,8 @@ void he_start_calibration(void);
 void he_end_calibration(void);
 bool he_is_calibrating(void);
 
-// EEPROM persistence of the per-key thresholds (actuation/release).
+// EEPROM persistence of the per-key thresholds (actuation/release) and the
+// global settings (actuation mode + rapid-trigger tuning).
 void he_load_from_eeprom(void);
 void he_save_to_eeprom(void);
+void he_save_settings_to_eeprom(void);

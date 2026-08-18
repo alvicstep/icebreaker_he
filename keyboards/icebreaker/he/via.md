@@ -45,17 +45,17 @@ The custom-value sub-commands are QMK's `id_custom_set_value = 0x07`,
 | 3 | **Save thresholds** | button | — | Commits ID 1/2 → all 69 sensors + EEPROM. Prints `Actuation Settings Saved!`. |
 | 4 | **Start calibration** | button | — | "fully press each key… end in VIA". |
 | 5 | **End calibration** | button (SET-only) | — | GET = "Unhandled ID 5" (no get case); SET-only. |
-| 6 | Actuation mode | value (`data[0]`) | 0 | **0=Normal, 1=Rapid Trigger, 2=Key Cancel (SOCD)**. Direct set. **RAM-only** — not persisted. |
-| 7 | Deadzone | value | 15 | 15–60. **GET returns `[hi=0, lo=val]` (16-bit), SET reads `data[0]` (8-bit)** — see gotchas. |
-| 8 | Engage distance | value (`data[0]`) | 10 | 5–20 (rapid trigger). RAM-only. |
-| 9 | Release distance | value (`data[0]`) | 10 | 5–20 (rapid trigger). RAM-only. |
+| 6 | Actuation mode | value (`data[0]`) | 0 | **0=Normal, 1=Rapid Trigger, 2=Key Cancel (SOCD)**. Direct set. **Persisted immediately.** |
+| 7 | Deadzone | value | 15 | 15–60 (rapid trigger). **Persisted on save (ID 3 / 0x09).** |
+| 8 | Engage distance | value (`data[0]`) | 10 | 5–20 (rapid trigger). **Persisted on save (ID 3 / 0x09).** |
+| 9 | Release distance | value (`data[0]`) | 10 | 5–20 (rapid trigger). **Persisted on save (ID 3 / 0x09).** |
 | 12 | Set all sensors | value (`data[0]`) | — | SET-only. Applies actuation to all 69 sensors with release = actuation−1, auto-saves. |
 
 ### Byte layout
 
-- GET: IDs 1, 2, 6, 8, 9 return the value in `data[0]`; **ID 7 returns it in
-  `data[1]`** (console prints `data (7, 0 15)` = `[hi=0, lo=15]`).
-- SET: reads `data[0]` for all IDs. Send both bytes for safety.
+- GET: every value (IDs 1, 2, 6, 7, 8, 9) is written to `value_id_and_data[1]`
+  (the byte after the value id) as a single 8-bit byte.
+- SET: reads `value_id_and_data[1]` (the byte after the value id) for all IDs.
 - Custom keycodes (layer 3): `APCM`, `RTM`, `KCM`, `DEBUG0`–`DEBUG5`;
   non-standard `0x7820`–`0x7828` on layer 3 bottom row (offsets 32–40, not
   standard `QK_USER` `0x7E00`). "Firmware Update" = `QK_BOOTLOADER` (`0x7C00`).
@@ -68,13 +68,31 @@ These quirks are intentional — they mirror the original firmware:
 
 - **Thresholds are staged.** SET (IDs 1/2) only stores a staged value; the
   "Save" button (ID 3) commits them to every sensor and writes EEPROM. The
-  generic VIA save command (`0x09`) is a **no-op** — there is no handler, so
-  the mode/tuning are never persisted through the normal save path.
-- **Actuation mode and rapid-trigger tuning are RAM-only.** They reset to
-  Normal / defaults on power-cycle or USB disconnect. Only thresholds persist
-  (via the ID 3 button).
+  staged values are only applied when they were actually SET (dirty flag), so a
+  save that follows a mode/tuning-only change does not reset the per-key
+  thresholds to the staged defaults.
 - **"Set all" (ID 12)** applies immediately and auto-saves, with
   `release = actuation − 1` (recovered behaviour).
+
+## Divergences from the original (bug fixes)
+
+The original firmware had several persistence bugs, fixed here:
+
+- **Actuation mode and rapid-trigger tuning are persisted.** The original kept
+  them RAM-only, so they reset to Normal / defaults on power-cycle or USB
+  disconnect. We now write them to a 4-byte settings record at the tail of the
+  keyboard EEPROM block (after the 69 per-key records). The mode is persisted
+  immediately on change (discrete toggle); the tuning values (slider values) are
+  persisted on the save action (ID 3 or `0x09`) to avoid hammering the
+  flash-backed EEPROM during a VIA drag.
+- **The generic save command (`id_custom_save` / `0x09`) is implemented.** The
+  original had no handler, so the standard VIA "Save" button did nothing; it
+  now persists the current state (per-key thresholds + mode + tuning). It also
+  commits staged thresholds, but only if they were actually SET since the last
+  save (dirty flag), so a mode/tuning-only save does not clobber thresholds.
+- **Deadzone (ID 7) GET/SET asymmetry fixed.** The original returned a 16-bit
+  `[hi=0, lo=val]` on GET but read only 8 bits on SET, so a VIA `range` could
+  not round-trip it. Both sides are now a single 8-bit byte.
 
 ---
 
@@ -99,11 +117,6 @@ Helper scripts in `/tmp`: `via_probe.py`, `via_raw.py`, `via_keymap.py`,
 - **Raw HID response buffer is NOT cleared between commands.** For
   unhandled/write-only IDs, the 32-byte echo may contain **stale bytes** from
   the previous report. **Trust the console `uprintf`, not the raw echo.**
-- **Deadzone (ID 7) asymmetry:** GET writes `[hi=0, lo=val]` (16-bit) but SET
-  reads only `data[0]` (8-bit). A VIA `range` can't round-trip it correctly
-  (`range` ignores `bytes`, only `max` matters). Workaround: 8-bit
-  `range [15,60]` — SET works, but the initial display reads `data[0]=0` (shows
-  min 15 until the user drags). Firmware bug; preserve it.
 - **Excessive probing causes EEPROM wear** ("EEPROM wear!!!" printed). Each
   commit re-writes flash. Restore defaults after probing: ID 1=50, ID 2=30,
   ID 6=0, ID 7=15, ID 8=10, ID 9=10.

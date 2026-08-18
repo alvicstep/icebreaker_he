@@ -144,15 +144,17 @@
 // STM32F411 has no dedicated EEPROM. QMK's default wear-leveling driver maps
 // the *last* 128 KB flash sector as backing store (whole-sector granularity).
 // 16 KB backing -> 8 KB logical EEPROM, leaving room for VIA's dynamic keymap
-// *and* the 414-byte per-key Hall config below.
+// *and* the 418-byte per-key + settings Hall config below.
 #define WEAR_LEVELING_BACKING_SIZE 16384
 
 // Per-key Hall config: 69 sensors x 6 bytes (see he_eeprom_key_config_t in
-// he_matrix.h). Stored in QMK's keyboard data block, which lives between the
-// core eeconfig and the VIA region; EECONFIG_SIZE grows automatically, pushing
-// the VIA dynamic keymap up so the two never overlap.
-#define EECONFIG_KB_DATA_SIZE (HE_SENSOR_COUNT * 6)
-#define EECONFIG_KB_DATA_VERSION 1
+// he_matrix.h) followed by a 4-byte settings record (actuation mode +
+// rapid-trigger tuning, see he_settings_eeprom_t). Stored in QMK's keyboard
+// data block, which lives between the core eeconfig and the VIA region;
+// EECONFIG_SIZE grows automatically, pushing the VIA dynamic keymap up so the
+// two never overlap.
+#define EECONFIG_KB_DATA_SIZE (HE_SENSOR_COUNT * 6 + 4)
+#define EECONFIG_KB_DATA_VERSION 2
 
 /* --------------------------------------------------------------------------
  * RGB lighting — WS2812/SK6812 strip driven by PWM + DMA (recovered from the

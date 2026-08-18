@@ -58,8 +58,8 @@ free for key `[1,2]`. 68 of 69 `(mux, addr)` pairs are unique.
 
 ## EEPROM layout (recovered)
 
-69 × 6 bytes = 414 B total, in QMK's keyboard data block
-(`EECONFIG_KB_DATA_SIZE = HE_SENSOR_COUNT * 6`):
+69 × 6 bytes = 414 B of per-key records, plus a 4-byte settings record at the
+tail, in QMK's keyboard data block (`EECONFIG_KB_DATA_SIZE = HE_SENSOR_COUNT * 6 + 4`):
 
 ```c
 typedef struct __attribute__((packed)) {
@@ -73,6 +73,12 @@ typedef struct __attribute__((packed)) {
 
 Only `actuation`/`release` are ever updated (VIA "Save" ID 3). The other four
 bytes keep their recovered defaults.
+
+> **Divergence (bug fix):** the original firmware never stored the actuation
+> mode or the rapid-trigger tuning (deadzone / engage / release-distance) in
+> EEPROM, so they reset on every power-cycle. This reconstruction appends a
+> 4-byte `he_settings_eeprom_t` record (mode, deadzone, engage, release_dist)
+> after the 69 per-key records and persists it on change.
 
 ---
 

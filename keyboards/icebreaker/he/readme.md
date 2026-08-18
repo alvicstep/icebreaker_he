@@ -97,11 +97,17 @@ instead. The analog `(0, 0)` channel is therefore free for key `[1,2]`.
 
 ### EEPROM layout
 
-69 × `he_key_config_t` (6 bytes each = 414 B). Defaults (from `matrix_init` @
-`0x080096F8`): actuation `50`, release `30`, `byte4=700` (0x2BC), `byte3=10`.
-Only thresholds persist (via VIA "Save Thresholds", value ID 3). The actuation
-**mode** (Normal / Rapid Trigger / Key Cancel) is **RAM-only** and resets to
-Normal (0) on power-cycle / USB disconnect — this is a known bug in the original.
+69 × `he_eeprom_key_config_t` (6 bytes each = 414 B) followed by one
+`he_settings_eeprom_t` (4 bytes) = 418 B total. Defaults (from `matrix_init` @
+`0x080096F8`): actuation `50`, release `30`, `byte4=700` (0x2BC), `byte3=10`;
+mode `0`, deadzone `15`, engage `10`, release-distance `10`.
+
+Thresholds persist via VIA "Save Thresholds" (value ID 3) or the generic VIA
+save command (`id_custom_save` / `0x09`). The actuation **mode** is persisted
+immediately on change; the rapid-trigger **tuning** (deadzone / engage /
+release-distance) persists on the save action. In the **original** firmware
+these were all **RAM-only** and reset to Normal / defaults on power-cycle or USB
+disconnect — this reconstruction fixes that bug.
 
 ### VIA custom value IDs
 
