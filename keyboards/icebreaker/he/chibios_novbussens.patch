@@ -1,0 +1,47 @@
+diff --git a/os/hal/ports/STM32/LLD/OTGv1/hal_usb_lld.c b/os/hal/ports/STM32/LLD/OTGv1/hal_usb_lld.c
+index 54cd5b33e6..4b500097e5 100644
+--- a/os/hal/ports/STM32/LLD/OTGv1/hal_usb_lld.c
++++ b/os/hal/ports/STM32/LLD/OTGv1/hal_usb_lld.c
+@@ -914,8 +914,13 @@ void usb_lld_start(USBDriver *usbp) {
+     /* PHY enabled.*/
+     otgp->PCGCCTL = 0;
+ 
+-    /* VBUS sensing and transceiver enabled.*/
++    /* VBUS sensing and transceiver enabled.
++       For NOVBUSSENS boards (e.g. STM32F411 with the embedded FS PHY) the
++       B-session-valid override is not used: VBUS is internally held valid by
++       GCCFG_NOVBUSSENS and the D+ pull-up is driven by DCTL_SDIS instead.*/
++#if !defined(BOARD_OTG_NOVBUSSENS)
+     otgp->GOTGCTL = GOTGCTL_BVALOEN | GOTGCTL_BVALOVAL;
++#endif
+ 
+ #if defined(BOARD_OTG2_USES_ULPI)
+ #if STM32_USB_USE_OTG1
+diff --git a/os/hal/ports/STM32/LLD/OTGv1/hal_usb_lld.h b/os/hal/ports/STM32/LLD/OTGv1/hal_usb_lld.h
+index 9a0864e961..c573a36a64 100644
+--- a/os/hal/ports/STM32/LLD/OTGv1/hal_usb_lld.h
++++ b/os/hal/ports/STM32/LLD/OTGv1/hal_usb_lld.h
+@@ -546,7 +546,11 @@ struct USBDriver {
+  * @notapi
+  */
+ #if (STM32_OTG_STEPPING == 1) || defined(__DOXYGEN__)
++#if defined(BOARD_OTG_NOVBUSSENS)
++#define usb_lld_connect_bus(usbp) ((usbp)->otg->DCTL &= ~DCTL_SDIS)
++#else
+ #define usb_lld_connect_bus(usbp) ((usbp)->otg->GCCFG |= GCCFG_VBUSBSEN)
++#endif
+ #else
+ #define usb_lld_connect_bus(usbp) ((usbp)->otg->DCTL &= ~DCTL_SDIS)
+ #endif
+@@ -557,7 +561,11 @@ struct USBDriver {
+  * @notapi
+  */
+ #if (STM32_OTG_STEPPING == 1) || defined(__DOXYGEN__)
++#if defined(BOARD_OTG_NOVBUSSENS)
++#define usb_lld_disconnect_bus(usbp) ((usbp)->otg->DCTL |= DCTL_SDIS)
++#else
+ #define usb_lld_disconnect_bus(usbp) ((usbp)->otg->GCCFG &= ~GCCFG_VBUSBSEN)
++#endif
+ #else
+ #define usb_lld_disconnect_bus(usbp) ((usbp)->otg->DCTL |= DCTL_SDIS)
+ #endif

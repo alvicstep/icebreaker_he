@@ -1,0 +1,310 @@
+{
+  "name": "Icebreaker HE",
+  "vendorId": "0x5363",
+  "productId": "0x0010",
+  "matrix": {
+    "rows": 5,
+    "cols": 16
+  },
+  "keycodes": [
+    "qmk_rgblight_keycodes"
+  ],
+  "customKeycodes": [
+    {
+      "name": "APCM",
+      "title": "Toggle Actuation Point Control Mode",
+      "shortName": "APCM"
+    },
+    {
+      "name": "RTM",
+      "title": "Toggle Rapid Trigger Mode",
+      "shortName": "RTM"
+    },
+    {
+      "name": "KCM",
+      "title": "Toggle Key Cancel Mode",
+      "shortName": "KCM"
+    },
+    {
+      "name": "DEBUG0",
+      "title": "Diagnostic Verbosity 0",
+      "shortName": "DBG0"
+    },
+    {
+      "name": "DEBUG1",
+      "title": "Diagnostic Verbosity 1",
+      "shortName": "DBG1"
+    },
+    {
+      "name": "DEBUG2",
+      "title": "Diagnostic Verbosity 2",
+      "shortName": "DBG2"
+    },
+    {
+      "name": "DEBUG3",
+      "title": "Diagnostic Verbosity 3",
+      "shortName": "DBG3"
+    },
+    {
+      "name": "DEBUG4",
+      "title": "Diagnostic Verbosity 4",
+      "shortName": "DBG4"
+    },
+    {
+      "name": "DEBUG5",
+      "title": "Diagnostic Verbosity 5",
+      "shortName": "DBG5"
+    }
+  ],
+  "menus": [
+    {
+      "label": "Hall Effect",
+      "content": [
+        {
+          "label": "Actuation Mode",
+          "content": [
+            {
+              "type": "dropdown",
+              "label": "Mode",
+              "content": [
+                "id_actuation_mode",
+                0,
+                6
+              ],
+              "options": [
+                "Normal",
+                "Rapid Trigger",
+                "Key Cancel"
+              ]
+            }
+          ]
+        },
+        {
+          "label": "Calibration",
+          "content": [
+            {
+              "type": "button",
+              "label": "Start Calibration",
+              "content": [
+                "id_calibration_start",
+                0,
+                4
+              ]
+            },
+            {
+              "type": "button",
+              "label": "End + Save Calibration",
+              "content": [
+                "id_calibration_end",
+                0,
+                5
+              ]
+            }
+          ]
+        },
+        {
+          "label": "APC Settings",
+          "content": [
+            {
+              "type": "range",
+              "label": "Actuation Threshold",
+              "content": [
+                "id_actuation_threshold",
+                0,
+                1
+              ],
+              "options": [
+                10,
+                90
+              ]
+            },
+            {
+              "type": "range",
+              "label": "Release Threshold",
+              "content": [
+                "id_release_threshold",
+                0,
+                2
+              ],
+              "options": [
+                10,
+                90
+              ]
+            },
+            {
+              "type": "button",
+              "label": "Save Thresholds",
+              "content": [
+                "id_save_thresholds",
+                0,
+                3
+              ]
+            }
+          ]
+        },
+        {
+          "label": "Rapid Trigger",
+          "content": [
+            {
+              "showIf": "{id_actuation_mode} == 1",
+              "content": [
+                {
+                  "type": "range",
+                  "label": "Deadzone",
+                  "content": [
+                    "id_deadzone",
+                    0,
+                    7
+                  ],
+                  "options": [
+                    15,
+                    60
+                  ]
+                },
+                {
+                  "type": "range",
+                  "label": "Engage Distance",
+                  "content": [
+                    "id_engage_distance",
+                    0,
+                    8
+                  ],
+                  "options": [
+                    5,
+                    20
+                  ]
+                },
+                {
+                  "type": "range",
+                  "label": "Disengage Distance",
+                  "content": [
+                    "id_release_distance",
+                    0,
+                    9
+                  ],
+                  "options": [
+                    5,
+                    20
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "layouts": {
+    "keymap": [
+      [
+        "0,0",
+        "0,1",
+        "0,2",
+        "0,3",
+        "0,4",
+        "0,5",
+        "0,6",
+        "0,7",
+        "0,8",
+        "0,9",
+        "0,10",
+        "0,11",
+        "0,12",
+        "0,13",
+        "0,14",
+        "0,15"
+      ],
+      [
+        {
+          "w": 1.5
+        },
+        "1,0",
+        "1,1",
+        "1,2",
+        "1,3",
+        "1,4",
+        "1,5",
+        "1,6",
+        "1,7",
+        "1,8",
+        "1,9",
+        "1,10",
+        "1,11",
+        "1,12",
+        {
+          "w": 1.5
+        },
+        "1,13",
+        "1,14"
+      ],
+      [
+        {
+          "w": 1.75
+        },
+        "2,0",
+        "2,1",
+        "2,2",
+        "2,3",
+        "2,4",
+        "2,5",
+        "2,6",
+        "2,7",
+        "2,8",
+        "2,9",
+        "2,10",
+        "2,11",
+        {
+          "w": 2.25
+        },
+        "2,12",
+        "2,13"
+      ],
+      [
+        {
+          "w": 2.25
+        },
+        "3,0",
+        "3,1",
+        "3,2",
+        "3,3",
+        "3,4",
+        "3,5",
+        "3,6",
+        "3,7",
+        "3,8",
+        "3,9",
+        "3,10",
+        {
+          "w": 1.75
+        },
+        "3,11",
+        "3,12",
+        "3,13"
+      ],
+      [
+        {
+          "w": 1.5
+        },
+        "4,0",
+        {
+          "w": 1
+        },
+        "4,1",
+        {
+          "w": 1.5
+        },
+        "4,2",
+        {
+          "w": 7
+        },
+        "4,3",
+        "4,4",
+        "4,5",
+        "4,6",
+        "4,7",
+        "4,8",
+        "4,9\n\n\n\n\n\n\n\n\ne0"
+      ]
+    ]
+  }
+}
