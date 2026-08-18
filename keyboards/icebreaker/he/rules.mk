@@ -20,11 +20,10 @@ EEPROM_DRIVER = wear_leveling
 WEAR_LEVELING_DRIVER = embedded_flash
 
 # Features (nkro/extrakey/mousekey/raw are set in keyboard.json; VIA is enabled
-# per-keymap in keymaps/via/rules.mk).
+# per-keymap in keymaps/via_custom/rules.mk).
 # Encoder: A/B rotation = PB14/PB13 (config.h), push = matrix [4,9] (he_matrix.c).
-# ENCODER_MAP_ENABLE lets VIA remap the CW/CCW actions per-layer.
+# ENCODER_MAP_ENABLE is a keymap-level feature; enable it in each keymap's rules.mk.
 ENCODER_ENABLE = yes
-ENCODER_MAP_ENABLE = yes
 
 # Hall-effect / rapid-trigger feature flags (custom, see he_matrix.c).
 HE_ENABLE = yes

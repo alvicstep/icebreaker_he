@@ -145,7 +145,7 @@ he/
 ├── he_via.h/.c         VIA custom-value handler
 └── keymaps/
     ├── default/        bare-bones keymap
-    └── via/            VIA-enabled keymap
+    └── via_custom/     VIA-enabled keymap
 ```
 
 ## Status / TODO
