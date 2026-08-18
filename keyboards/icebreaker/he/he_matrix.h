@@ -47,6 +47,7 @@ typedef struct {
     uint8_t  travel;       // last computed travel % (0..100)
     uint8_t  peak;         // peak travel since last press  (rapid trigger)
     uint8_t  valley;       // valley travel since last release (rapid trigger)
+    uint8_t  debounce;     // consecutive-sample counter for press/release
     bool     pressed;      // reported press state (post-SOCD, matrix output)
 } he_key_config_t;
 
@@ -58,15 +59,13 @@ typedef struct {
     uint8_t release_dist;  // upward travel to release, % (ID 9)
 } he_tuning_t;
 
-// Recovered 6-byte on-EEPROM record (69 of these = 414 B total). Only
-// `actuation`/`release` are ever updated (VIA save, ID 3); the remaining four
-// bytes keep their recovered init defaults (reserved=0, engage=10, raw=0x02BC).
+// On-EEPROM record (69 of these = 138 B total). Only `actuation`/`release` are
+// ever used; the recovered 6-byte record also carried `reserved`/`engage`/`raw`
+// bytes that were written but never read back, so they are dropped here (the
+// global rapid-trigger tuning lives in the settings record, not per-key).
 typedef struct __attribute__((packed)) {
-    uint8_t  actuation;
-    uint8_t  release;
-    uint8_t  reserved;
-    uint8_t  engage;
-    uint16_t raw;
+    uint8_t actuation;
+    uint8_t release;
 } he_eeprom_key_config_t;
 
 // On-EEPROM global settings record, stored once immediately after the 69

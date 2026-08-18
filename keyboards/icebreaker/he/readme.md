@@ -97,17 +97,20 @@ instead. The analog `(0, 0)` channel is therefore free for key `[1,2]`.
 
 ### EEPROM layout
 
-69 × `he_eeprom_key_config_t` (6 bytes each = 414 B) followed by one
-`he_settings_eeprom_t` (4 bytes) = 418 B total. Defaults (from `matrix_init` @
-`0x080096F8`): actuation `50`, release `30`, `byte4=700` (0x2BC), `byte3=10`;
-mode `0`, deadzone `15`, engage `10`, release-distance `10`.
+69 × `he_eeprom_key_config_t` (2 bytes each = 138 B) followed by one
+`he_settings_eeprom_t` (4 bytes) = 142 B total. Defaults: actuation `50`,
+release `30`; mode `1` (Rapid Trigger), deadzone `50`, engage `15`,
+release-distance `10`. The per-key record previously carried unused recovered
+bytes (`reserved`, `engage`, `raw`) that were written but never read back;
+those are dropped here (`EECONFIG_KB_DATA_VERSION` bumped to `3`).
 
-Thresholds persist via VIA "Save Thresholds" (value ID 3) or the generic VIA
-save command (`id_custom_save` / `0x09`). The actuation **mode** is persisted
-immediately on change; the rapid-trigger **tuning** (deadzone / engage /
-release-distance) persists on the save action. In the **original** firmware
-these were all **RAM-only** and reset to Normal / defaults on power-cycle or USB
-disconnect — this reconstruction fixes that bug.
+Thresholds persist via VIA "Save Thresholds" (value ID 3), the generic VIA
+save command (`id_custom_save` / `0x09`), or a 2-second auto-save fallback after
+the last slider change. The actuation **mode** is persisted immediately on
+change; the rapid-trigger **tuning** (deadzone / engage / release-distance)
+persists on the save action. In the **original** firmware these were all
+**RAM-only** and reset to Normal / defaults on power-cycle or USB disconnect —
+this reconstruction fixes that bug.
 
 ### VIA custom value IDs
 
@@ -154,7 +157,7 @@ he/
 - [x] Encoder A/B rotation pins (PB14/PB13) and encoder-push GPIO (PB12/PB15).
 - [x] Rapid trigger / key-cancel (SOCD) / actuation-point control logic.
 - [x] Noise-floor calibration (recovered algorithm).
-- [x] EEPROM persistence of actuation/release thresholds (69 × 6-byte data block).
+- [x] EEPROM persistence of actuation/release thresholds (69 × 2-byte data block).
 - [x] 12-bit ADC configuration (`ADC_RESOLUTION ADC_CFGR1_RES_12BIT`).
 - [x] USB enumeration (OTGv1 step-1 connect fix — see troubleshooting.md).
 - [x] Hall press polarity + auto-calibration (keys register — see troubleshooting.md).

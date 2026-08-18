@@ -22,6 +22,7 @@
 #include "he_via.h"
 #include "he_matrix.h"
 #include "print.h"
+#include "timer.h"
 #include "via.h"
 
 // Staged thresholds (recovered: SET stages, ID 3 commits).
@@ -32,6 +33,18 @@ static uint8_t staged_release   = HE_RELEASE_DEFAULT;
 // mode/tuning-only change — from resetting the per-key thresholds to the stale
 // staged defaults (50/30).
 static bool    staged_dirty     = false;
+
+// Auto-save fallback: VIA normally persists via the "save" button (ID 3 / 0x09),
+// but the original also re-saved 2 s after the last slider move. Track a
+// pending flag + timestamp here; he_via_task() (called from the matrix scan)
+// commits once the window elapses.
+static bool     autosave_pending = false;
+static uint16_t autosave_timer   = 0;
+
+static void he_via_arm_autosave(void) {
+    autosave_pending = true;
+    autosave_timer   = timer_read();
+}
 
 uint8_t he_via_get_mode(void) {
     return (uint8_t)he_get_mode();
@@ -54,6 +67,15 @@ static void he_via_commit_thresholds(void) {
     uprintf("Actuation Settings Saved!\n");
 }
 
+// Housekeeping: auto-persist staged slider changes after HE_VIA_AUTOSAVE_MS of
+// inactivity. Called every matrix scan from matrix_scan_custom().
+void he_via_task(void) {
+    if (autosave_pending && timer_elapsed(autosave_timer) >= HE_VIA_AUTOSAVE_MS) {
+        autosave_pending = false;
+        he_via_commit_thresholds();
+    }
+}
+
 static void he_via_set_value(uint8_t *data) {
     // data = [ value_id, value_data ]
     uint8_t value_id = data[0];
@@ -63,10 +85,12 @@ static void he_via_set_value(uint8_t *data) {
         case he_id_actuation:
             staged_actuation = value;
             staged_dirty     = true;
+            he_via_arm_autosave();
             break;
         case he_id_release:
             staged_release = value;
             staged_dirty   = true;
+            he_via_arm_autosave();
             break;
         case he_id_save:
             he_via_commit_thresholds();
@@ -77,12 +101,15 @@ static void he_via_set_value(uint8_t *data) {
             break;
         case he_id_deadzone:
             he_set_deadzone(value);
+            he_via_arm_autosave();
             break;
         case he_id_engage:
             he_set_engage(value);
+            he_via_arm_autosave();
             break;
         case he_id_release_dist:
             he_set_release_dist(value);
+            he_via_arm_autosave();
             break;
         case he_id_set_all:
             staged_actuation = value;

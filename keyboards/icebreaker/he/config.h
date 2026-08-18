@@ -158,7 +158,11 @@
 // Encoder push-button GPIO sense lines (see he_matrix.c).
 #define HE_ENC_PUSH_DRIVE_PIN B12
 #define HE_ENC_PUSH_SENSE_PIN B15
-#define HE_ENC_PUSH_DEBOUNCE  5
+
+// Symmetric per-key debounce: a press or release is only reported after this
+// many consecutive matrix scans agree. Applied to every key (analog Hall keys
+// *and* the GPIO encoder push) so a noisy sensor cannot flicker the output.
+#define HE_DEBOUNCE 5
 
 /* --------------------------------------------------------------------------
  * EEPROM (wear-leveled embedded flash)
@@ -167,17 +171,24 @@
 // STM32F411 has no dedicated EEPROM. QMK's default wear-leveling driver maps
 // the *last* 128 KB flash sector as backing store (whole-sector granularity).
 // 16 KB backing -> 8 KB logical EEPROM, leaving room for VIA's dynamic keymap
-// *and* the 418-byte per-key + settings Hall config below.
+// *and* the 142-byte per-key + settings Hall config below.
 #define WEAR_LEVELING_BACKING_SIZE 16384
 
-// Per-key Hall config: 69 sensors x 6 bytes (see he_eeprom_key_config_t in
+// Per-key Hall config: 69 sensors x 2 bytes (see he_eeprom_key_config_t in
 // he_matrix.h) followed by a 4-byte settings record (actuation mode +
 // rapid-trigger tuning, see he_settings_eeprom_t). Stored in QMK's keyboard
 // data block, which lives between the core eeconfig and the VIA region;
 // EECONFIG_SIZE grows automatically, pushing the VIA dynamic keymap up so the
 // two never overlap.
-#define EECONFIG_KB_DATA_SIZE (HE_SENSOR_COUNT * 6 + 4)
-#define EECONFIG_KB_DATA_VERSION 2
+#define EECONFIG_KB_DATA_SIZE (HE_SENSOR_COUNT * 2 + 4)
+// Bumped to 3 when the per-key record shrank from 6 -> 2 bytes (dropping the
+// never-read `reserved`/`engage`/`raw` recovered fields). The version lives in
+// EECONFIG_KEYBOARD; a mismatch invalidates the block so it is re-seeded.
+#define EECONFIG_KB_DATA_VERSION 3
+
+// VIA auto-save fallback: persist a slider change this many ms after the last
+// SET if VIA never sends the explicit save command (see he_via.c he_via_task).
+#define HE_VIA_AUTOSAVE_MS 2000
 
 /* --------------------------------------------------------------------------
  * RGB lighting — WS2812/SK6812 strip driven by PWM + DMA (recovered from the

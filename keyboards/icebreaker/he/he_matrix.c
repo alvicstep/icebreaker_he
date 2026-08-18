@@ -16,7 +16,7 @@
  * Implemented (previously TODO):
  *   - Rapid trigger / key-cancel (SOCD) / actuation-point control state machine.
  *   - Noise-floor calibration (recovered 10-sample-min @ 0x080098E0).
- *   - EEPROM persistence of the per-key thresholds (6-byte structs, 414 B) and
+ *   - EEPROM persistence of the per-key thresholds (2-byte structs, 138 B) and
  *     the global settings (actuation mode + rapid-trigger tuning, 4 B).
  *   - 12-bit ADC group config (ADC_RESOLUTION in config.h).
  *
@@ -27,6 +27,7 @@
  */
 
 #include "he_matrix.h"
+#include "he_via.h"
 
 #include "analog.h"
 #include "eeconfig.h"
@@ -446,8 +447,8 @@ bool he_is_calibrating(void) {
 /* --------------------------------------------------------------------------
  * EEPROM persistence (QMK keyboard data block)
  *
- * Layout: 69 x he_eeprom_key_config_t (414 B) followed by one
- * he_settings_eeprom_t (4 B) = 418 B total. The per-key records store the
+ * Layout: 69 x he_eeprom_key_config_t (2 B each = 138 B) followed by one
+ * he_settings_eeprom_t (4 B) = 142 B total. The per-key records store the
  * actuation/release thresholds; the trailing settings record stores the
  * actuation mode and rapid-trigger tuning that the original firmware kept
  * RAM-only (and therefore lost on reboot).
@@ -486,9 +487,6 @@ void he_save_to_eeprom(void) {
     for (uint8_t i = 0; i < HE_SENSOR_COUNT; i++) {
         rec[i].actuation = he_config[i].actuation;
         rec[i].release   = he_config[i].release;
-        rec[i].reserved  = 0;
-        rec[i].engage    = 10; // recovered per-key default (unused; global engage is in the settings record)
-        rec[i].raw       = 0x02BC; // recovered default (700)
     }
     eeconfig_update_kb_datablock(rec, 0, sizeof(rec));
     he_save_settings_to_eeprom();
@@ -518,11 +516,21 @@ static uint8_t he_raw_to_travel(const he_key_config_t *c, uint16_t raw) {
 // Per-key press decision across the three actuation modes.
 //
 //   Normal        : press at >= actuation, release at <= release (hysteresis).
-//   Rapid trigger : release when travel drops by `release_dist` from its peak
-//                   (or below absolute `release`); re-press when travel rises
-//                   by `engage` from its valley, once above the `deadzone`
-//                   rest band (or above absolute `actuation`).
+//   Rapid trigger : a clean-room "peak/valley" model. While held, `peak`
+//                   tracks the highest travel and the key releases when travel
+//                   drops `release_dist` (the "disengage" distance) below the
+//                   peak, or when it falls back into the `deadzone` rest band.
+//                   While released, `valley` tracks the lowest travel and the
+//                   key re-presses when travel rises `engage` above the valley
+//                   (or crosses the absolute `actuation` threshold). This is
+//                   the *intended* rapid-trigger semantics: it is equivalent
+//                   to the official's single `boundary_value` reference but
+//                   uses two explicit extremes, and it avoids the official's
+//                   bug where the re-press boundary was set to
+//                   `release + engage` and then re-checked against
+//                   `boundary + engage` (a 2x engage dead-band).
 //   Key cancel    : same as Normal; SOCD pair resolution happens in the scan.
+//
 // Computes the *physical* press state (before any SOCD resolution) and updates
 // it through `pressed`, which points at he_phys_pressed[i]. The reported state
 // in c->pressed is derived later in the scan; keeping the two separate is what
@@ -589,14 +597,18 @@ static void he_config_set_defaults(void) {
     for (uint8_t i = 0; i < HE_SENSOR_COUNT; i++) {
         he_config[i].actuation = HE_ACTUATION_DEFAULT;
         he_config[i].release   = HE_RELEASE_DEFAULT;
-        // Bipolar Hall: rest = mid-scale, press = toward full scale. These are
-        // only a safe fallback — the boot auto-calibration in matrix_scan_custom()
-        // overwrites raw_min/raw_max with the measured resting floor + span.
-        he_config[i].raw_min   = HE_ADC_RAW_MID;
-        he_config[i].raw_max   = HE_ADC_RAW_MAX;
+        // Bipolar Hall: rest = mid-scale, press = toward full scale. Seed a
+        // *provisional* span centered at mid-scale (the expected ~700-count
+        // swing) rather than the full 0..4095 scale, so a real bottom-out
+        // (~2842) maps to ~100% travel even during the boot rest-sampling
+        // window before the true per-sensor floor locks in. Using full scale
+        // here would map a bottom-out to only ~39%, dropping early keystrokes.
+        he_config[i].raw_min   = HE_ADC_RAW_MID - HE_ADC_REST_MARGIN;
+        he_config[i].raw_max   = he_config[i].raw_min + HE_ADC_TRAVEL_SPAN;
         he_config[i].travel    = 0;
         he_config[i].peak      = 0;
         he_config[i].valley    = 0;
+        he_config[i].debounce  = 0;
         he_config[i].pressed   = false;
         he_rest_floor[i]       = HE_ADC_RAW_MAX;
     }
@@ -658,16 +670,19 @@ void keyboard_post_init_kb(void) {
     keyboard_post_init_user();
 }
 
-// Debounce state for the encoder push button (sensor 68). Mirrors the
-// original's N-sample confirm (5 consecutive equal reads).
-static uint8_t he_enc_push_debounce = 0;
-
 // Physical (pre-SOCD) press state per key, plus key-cancel winner tracking
 // (0 = first pair index wins, 1 = second, 0xFF = none). he_compute_pressed()
 // owns he_phys_pressed[] via pointer; SOCD resolution below derives the
 // reported state in he_config[].pressed from it without mutating
 // he_phys_pressed[], which is what keeps the hysteresis stable.
 static bool    he_phys_pressed[HE_SENSOR_COUNT];
+
+// Debounced (stable) physical state, derived from he_phys_pressed[] after a
+// symmetric N-sample confirm (HE_DEBOUNCE). SOCD resolution and the matrix
+// output commit read this stable state, so a noisy sensor cannot flicker the
+// reported key on either the press or release edge.
+static bool    he_debounced[HE_SENSOR_COUNT];
+
 static uint8_t socd_winner[SOCD_PAIR_COUNT] = {0xFF, 0xFF};
 
 // Monotonic scan counter; drives the boot auto-calibration rest-sampling window
@@ -688,56 +703,62 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
         const he_sensor_t *s = &he_sensors[i];
         he_key_config_t   *c = &he_config[i];
 
+        // Previous *debounced* state, to detect the rising edge after the
+        // debounce stage (rather than the instantaneous state).
+        bool was_debounced = he_debounced[i];
+
         // Encoder push (sensor 68) is not on the analog mux — read it via the
         // PB12/PB15 GPIO pair instead (see he_read_encoder_push). Its mux/addr
         // bytes in the table are dummy; skipping the analog read also keeps the
         // shared (mux 0, addr 0) channel free for key [1,2].
         if (i == HE_ENC_PUSH_INDEX) {
-            bool raw = he_read_encoder_push();
-            if (raw != he_phys_pressed[i]) {
-                if (++he_enc_push_debounce >= HE_ENC_PUSH_DEBOUNCE) {
-                    bool was            = he_phys_pressed[i];
-                    he_phys_pressed[i]  = raw;
-                    he_enc_push_debounce = 0;
-                    newly_pressed[i]    = raw && !was;
-                }
-            } else {
-                he_enc_push_debounce = 0;
+            he_phys_pressed[i] = he_read_encoder_push();
+        } else {
+            uint16_t raw = he_read_sensor_raw(s);
+
+            // Boot auto-calibration: while the board is at rest (first N scans),
+            // track each sensor's resting floor. Press drives the ADC *up* from
+            // mid-scale, so the floor is the minimum raw value observed.
+            if (he_scan_count <= HE_ADC_REST_SAMPLE_SCANS && raw < he_rest_floor[i]) {
+                he_rest_floor[i] = raw;
             }
-            continue;
-        }
 
-        uint16_t raw = he_read_sensor_raw(s);
-
-        // Boot auto-calibration: while the board is at rest (first N scans),
-        // track each sensor's resting floor. Press drives the ADC *up* from
-        // mid-scale, so the floor is the minimum raw value observed.
-        if (he_scan_count <= HE_ADC_REST_SAMPLE_SCANS && raw < he_rest_floor[i]) {
-            he_rest_floor[i] = raw;
-        }
-
-        // Accumulate the per-sensor noise floor / ceiling while calibrating.
-        if (he_calibrating) {
-            if (raw < c->raw_min) c->raw_min = raw;
-            if (raw > c->raw_max) c->raw_max = raw;
-        }
+            // Accumulate the per-sensor noise floor / ceiling while calibrating.
+            if (he_calibrating) {
+                if (raw < c->raw_min) c->raw_min = raw;
+                if (raw > c->raw_max) c->raw_max = raw;
+            }
 
 #if defined(RGBLIGHT_ENABLE)
-        // Per-key calibration feedback (recovered): the strip starts red and a
-        // key's LED latches green once it is pressed, so the user can see which
-        // keys have already been calibrated. `he_rest_floor[i]` is the boot
-        // auto-cal resting value, so this is robust against the still-growing
-        // raw_min/raw_max during the run.
-        if (he_calibrating && !he_cal_latched[i] && raw > he_rest_floor[i] + HE_CAL_PRESS_MARGIN) {
-            he_cal_latched[i] = true;
-            rgblight_sethsv_at(HSV_GREEN, he_led_remap[i]);
-        }
+            // Per-key calibration feedback (recovered): the strip starts red and a
+            // key's LED latches green once it is pressed, so the user can see which
+            // keys have already been calibrated. `he_rest_floor[i]` is the boot
+            // auto-cal resting value, so this is robust against the still-growing
+            // raw_min/raw_max during the run.
+            if (he_calibrating && !he_cal_latched[i] && raw > he_rest_floor[i] + HE_CAL_PRESS_MARGIN) {
+                he_cal_latched[i] = true;
+                rgblight_sethsv_at(HSV_GREEN, he_led_remap[i]);
+            }
 #endif
 
-        uint8_t travel = he_raw_to_travel(c, raw);
-        bool    was    = he_phys_pressed[i];
-        he_compute_pressed(c, &he_phys_pressed[i], travel);
-        newly_pressed[i] = he_phys_pressed[i] && !was;
+            uint8_t travel = he_raw_to_travel(c, raw);
+            he_compute_pressed(c, &he_phys_pressed[i], travel);
+        }
+
+        // Symmetric N-sample debounce on the instantaneous physical state. The
+        // stable state only flips after HE_DEBOUNCE consecutive scans agree,
+        // filtering sensor/ADC noise on *both* the press and release edges (the
+        // original firmware debounced press only, so a noisy release flickered).
+        if (he_phys_pressed[i] != he_debounced[i]) {
+            if (++c->debounce >= HE_DEBOUNCE) {
+                he_debounced[i] = he_phys_pressed[i];
+                c->debounce     = 0;
+            }
+        } else {
+            c->debounce = 0;
+        }
+
+        newly_pressed[i] = he_debounced[i] && !was_debounced;
     }
 
     // Lock in the boot auto-calibration once the rest-sampling window closes.
@@ -775,11 +796,11 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
                 socd_winner[p] = 1;
             }
 
-            if (!he_phys_pressed[ia] && !he_phys_pressed[ib]) {
+            if (!he_debounced[ia] && !he_debounced[ib]) {
                 socd_winner[p] = 0xFF;
             }
 
-            if (he_phys_pressed[ia] && he_phys_pressed[ib]) {
+            if (he_debounced[ia] && he_debounced[ib]) {
                 // Suppress the loser. A 0xFF winner (cold start — both keys
                 // already held with no rising edge, e.g. key-cancel mode was
                 // entered mid-hold) deterministically keeps the first key.
@@ -795,7 +816,7 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
     // 3) Commit the reported (post-SOCD) state to the matrix.
     for (uint8_t i = 0; i < HE_SENSOR_COUNT; i++) {
         const he_sensor_t *s = &he_sensors[i];
-        bool pressed         = he_phys_pressed[i] && !suppressed[i];
+        bool pressed         = he_debounced[i] && !suppressed[i];
 
         if (pressed != he_config[i].pressed) {
             he_config[i].pressed = pressed;
@@ -808,6 +829,10 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
             current_matrix[s->row] &= ~((matrix_row_t)1 << s->col);
         }
     }
+
+    // VIA auto-save fallback: persist any pending slider change after 2 s of
+    // inactivity, in case VIA never sends the explicit save command.
+    he_via_task();
 
     return changed;
 }

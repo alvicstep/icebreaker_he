@@ -31,3 +31,9 @@ enum he_via_value_id {
 
 // Exposed so keymap code can inspect the mode / config if needed.
 uint8_t he_via_get_mode(void);
+
+// Housekeeping hook (called from matrix_scan_custom): auto-persist staged
+// slider changes after HE_VIA_AUTOSAVE_MS of inactivity, mirroring the
+// original firmware's 2-second fallback in case VIA never sends the explicit
+// save command.
+void he_via_task(void);

@@ -14,7 +14,7 @@ SRC += he_via.c
 # Enable the QMK analog (ADC) driver — he_matrix.c uses analogReadPin().
 ANALOG_DRIVER_REQUIRED = yes
 
-# EEPROM persistence for per-key actuation/release thresholds (69 x 6 bytes)
+# EEPROM persistence for per-key actuation/release thresholds (69 x 2 bytes)
 # via the QMK keyboard data block. Backing size must be a whole flash sector.
 EEPROM_DRIVER = wear_leveling
 WEAR_LEVELING_DRIVER = embedded_flash
