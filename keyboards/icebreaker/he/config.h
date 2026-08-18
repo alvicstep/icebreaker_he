@@ -208,12 +208,12 @@
 // the vendor's T1H so the timing is bit-for-bit identical to stock.
 #define WS2812_T1H               792
 
-// rgblight boots ON in static mode (the QMK default); set the colour to a
-// light/sky blue so the strip is visibly working on first power-up.
-// QMK hue 167 + reduced saturation gives a light blue (hue 160 is cyan/teal,
-// which reads green; pure blue is 170).
-#define RGBLIGHT_DEFAULT_HUE     167
-#define RGBLIGHT_DEFAULT_SAT     160
+// rgblight boots ON in static mode. Colour/saturation/brightness are the exact
+// values set in VIA (hue 114 = teal/cyan, sat 128, val 128) so a fresh flash or
+// EEPROM reset reproduces the configured look instead of the QMK defaults.
+#define RGBLIGHT_DEFAULT_MODE    RGBLIGHT_MODE_STATIC_LIGHT
+#define RGBLIGHT_DEFAULT_HUE     114
+#define RGBLIGHT_DEFAULT_SAT     128
 
 // 68 LEDs at full brightness draw ~4 A — far past USB's 0.5 A — which browns
 // the board out on reconnect (blinding white flash, then a reset loop that
